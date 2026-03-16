@@ -59,13 +59,20 @@ export default function AppShellV0() {
   }, [schedules, inventory, wikis, isMounted]);
 
   // --- Discord ログイン・ログアウト処理 ---
-  const handleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'discord',
-      options: {
-        redirectTo: window.location.origin
-      }
-    });
+const handleLogin = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'discord',
+        options: {
+          //redirectTo: window.location.origin + '/auth/callback' // ここを修正
+          redirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+      if (error) throw error;
+    } catch (error: any) {
+      alert("ログインエラーが発生しました: " + error.message);
+      console.error(error);
+    }
   };
 
   const handleLogout = async () => {
