@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../lib/supabase"; //
 import { 
   Calendar, Package, BookOpen, Settings, 
   LogOut, Plus, ShieldAlert, ChevronRight, Trash2
@@ -9,7 +9,7 @@ import {
 
 export default function AppShellV0() {
   const [isMounted, setIsMounted] = useState(false);
-  const [session, setSession] = useState<any>(null); // Discordのログイン情報を保持
+  const [session, setSession] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [activeTab, setActiveTab] = useState("schedule");
 
@@ -29,7 +29,7 @@ export default function AppShellV0() {
   useEffect(() => {
     setIsMounted(true);
     
-    // Supabaseのログイン状態を監視
+    // ログイン状態の監視
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
     });
@@ -37,7 +37,7 @@ export default function AppShellV0() {
       setSession(session);
     });
 
-    // ローカルストレージからのデータ読み込み（モック用）
+    // データの読み込み
     const savedSchedules = localStorage.getItem("club_schedules");
     const savedInventory = localStorage.getItem("club_inventory");
     const savedWikis = localStorage.getItem("club_wikis");
@@ -58,21 +58,28 @@ export default function AppShellV0() {
     }
   }, [schedules, inventory, wikis, isMounted]);
 
-  // --- Discord ログイン・ログアウト処理 ---
+  // --- Discord ログイン処理 ---
   const handleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'discord',
-      options: {
-        redirectTo: window.location.origin
-      }
-    });
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'discord',
+        options: {
+          // コールバックURLを明示的に指定
+          redirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+      if (error) throw error;
+    } catch (error: any) {
+      alert("ログインエラーが発生しました: " + error.message);
+      console.error(error);
+    }
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
 
-  // --- 追加・削除のロジック ---
+  // --- 追加・削除ロジック ---
   const handleAddSchedule = () => {
     if (!newScheduleTitle || !newScheduleDate) return;
     setSchedules([...schedules, { id: Date.now(), title: newScheduleTitle, date: newScheduleDate }]);
@@ -94,12 +101,12 @@ export default function AppShellV0() {
   };
 
   const deleteItem = (setter: any, data: any[], id: number) => {
-    setter(data.filter(item => item.id !== id));
+    setter(data.filter((item: any) => item.id !== id));
   };
 
   if (!isMounted) return null;
 
-  // --- 1. ログイン画面 ---
+  // 未ログイン時
   if (!session) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 font-sans">
@@ -119,7 +126,6 @@ export default function AppShellV0() {
 
   const userProfile = session.user.user_metadata;
 
-  // --- 2. メイン画面 ---
   const renderContent = () => {
     switch (activeTab) {
       case "schedule":
@@ -157,7 +163,7 @@ export default function AppShellV0() {
               <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-2">
                 <p className="text-xs font-bold text-blue-600">機材を追加 (管理者のみ)</p>
                 <div className="flex gap-2">
-                  <input type="text" placeholder="絵文字(📷など)" value={newInvEmoji} onChange={e => setNewInvEmoji(e.target.value)} className="border rounded-lg p-2 text-sm w-16 text-center" />
+                  <input type="text" placeholder="📷" value={newInvEmoji} onChange={e => setNewInvEmoji(e.target.value)} className="border rounded-lg p-2 text-sm w-16 text-center" />
                   <input type="text" placeholder="機材名" value={newInvName} onChange={e => setNewInvName(e.target.value)} className="border rounded-lg p-2 text-sm flex-1" />
                 </div>
                 <input type="number" placeholder="総数" value={newInvTotal} onChange={e => setNewInvTotal(e.target.value)} className="border rounded-lg p-2 text-sm" />
@@ -207,7 +213,6 @@ export default function AppShellV0() {
                   </div>
                 </div>
               ))}
-              {wikis.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Wikiがありません</p>}
             </div>
           </div>
         );
@@ -218,9 +223,8 @@ export default function AppShellV0() {
             <h2 className="text-xl font-bold text-gray-800">設定・アカウント</h2>
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-                {/* ログインしたDiscordのアイコン画像を表示 */}
                 {userProfile?.avatar_url ? (
-                  <img src={userProfile.avatar_url} alt="User Avatar" className="w-10 h-10 rounded-full shadow-sm" />
+                  <img src={userProfile.avatar_url} alt="Avatar" className="w-10 h-10 rounded-full shadow-sm" />
                 ) : (
                   <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
                     {userProfile?.full_name?.charAt(0) || "U"}
