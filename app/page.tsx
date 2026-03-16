@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
 import { 
   Calendar, Package, BookOpen, Settings, 
   LogOut, Plus, ShieldAlert, ChevronRight, Trash2
@@ -8,7 +9,7 @@ import {
 
 export default function AppShellV0() {
   const [isMounted, setIsMounted] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [session, setSession] = useState<any>(null); // Discordのログイン情報を保持
   const [isAdmin, setIsAdmin] = useState(false);
   const [activeTab, setActiveTab] = useState("schedule");
 
@@ -27,17 +28,26 @@ export default function AppShellV0() {
 
   useEffect(() => {
     setIsMounted(true);
+    
+    // Supabaseのログイン状態を監視
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    // ローカルストレージからのデータ読み込み（モック用）
     const savedSchedules = localStorage.getItem("club_schedules");
     const savedInventory = localStorage.getItem("club_inventory");
     const savedWikis = localStorage.getItem("club_wikis");
 
     if (savedSchedules) setSchedules(JSON.parse(savedSchedules));
-    if (savedInventory) {
-      setInventory(JSON.parse(savedInventory));
-    } else {
-      setInventory([{ id: 1, name: "一眼レフカメラ", stock: 1, total: 1, image: "📷" }]);
-    }
+    if (savedInventory) setInventory(JSON.parse(savedInventory));
+    else setInventory([{ id: 1, name: "一眼レフカメラ", stock: 1, total: 1, image: "📷" }]);
     if (savedWikis) setWikis(JSON.parse(savedWikis));
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -48,19 +58,32 @@ export default function AppShellV0() {
     }
   }, [schedules, inventory, wikis, isMounted]);
 
+  // --- Discord ログイン・ログアウト処理 ---
+  const handleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: 'discord',
+      options: {
+        redirectTo: window.location.origin
+      }
+    });
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // --- 追加・削除のロジック ---
   const handleAddSchedule = () => {
     if (!newScheduleTitle || !newScheduleDate) return;
     setSchedules([...schedules, { id: Date.now(), title: newScheduleTitle, date: newScheduleDate }]);
-    setNewScheduleTitle("");
-    setNewScheduleDate("");
+    setNewScheduleTitle(""); setNewScheduleDate("");
   };
 
   const handleAddInventory = () => {
     if (!newInvName || !newInvTotal) return;
     const totalNum = parseInt(newInvTotal, 10);
     setInventory([...inventory, { id: Date.now(), name: newInvName, stock: totalNum, total: totalNum, image: newInvEmoji }]);
-    setNewInvName("");
-    setNewInvTotal("");
+    setNewInvName(""); setNewInvTotal("");
   };
 
   const handleAddWiki = () => {
@@ -76,16 +99,17 @@ export default function AppShellV0() {
 
   if (!isMounted) return null;
 
-  if (!isLoggedIn) {
+  // --- 1. ログイン画面 ---
+  if (!session) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 font-sans">
         <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm text-center">
           <div className="w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-md">
-            <span className="text-2xl font-bold">App</span>
+            <span className="text-2xl font-bold">Aero</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">課外活動アプリ</h1>
-          <p className="text-sm text-gray-500 mb-8">v0 プロトタイプ</p>
-          <button onClick={() => setIsLoggedIn(true)} className="w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors duration-200">
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">AeroSync</h1>
+          <p className="text-sm text-gray-500 mb-8">課外活動をスマートに同期</p>
+          <button onClick={handleLogin} className="w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors duration-200">
             Discordでログイン
           </button>
         </div>
@@ -93,6 +117,9 @@ export default function AppShellV0() {
     );
   }
 
+  const userProfile = session.user.user_metadata;
+
+  // --- 2. メイン画面 ---
   const renderContent = () => {
     switch (activeTab) {
       case "schedule":
@@ -190,12 +217,19 @@ export default function AppShellV0() {
           <div className="p-4 space-y-6">
             <h2 className="text-xl font-bold text-gray-800">設定・アカウント</h2>
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="p-4 border-b border-gray-100 flex items-center gap-3">
+                {/* ログインしたDiscordのアイコン画像を表示 */}
+                {userProfile?.avatar_url ? (
+                  <img src={userProfile.avatar_url} alt="User Avatar" className="w-10 h-10 rounded-full shadow-sm" />
+                ) : (
+                  <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
+                    {userProfile?.full_name?.charAt(0) || "U"}
+                  </div>
+                )}
                 <div>
-                  <p className="font-bold text-gray-800">aeracero</p>
+                  <p className="font-bold text-gray-800">{userProfile?.full_name || "ユーザー"}</p>
                   <p className="text-xs text-gray-500">Discord連携済み</p>
                 </div>
-                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">A</div>
               </div>
               <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-yellow-50">
                 <div className="flex items-center gap-2">
@@ -204,7 +238,7 @@ export default function AppShellV0() {
                 </div>
                 <input type="checkbox" checked={isAdmin} onChange={e => setIsAdmin(e.target.checked)} className="w-5 h-5 accent-yellow-600" />
               </div>
-              <button onClick={() => setIsLoggedIn(false)} className="w-full p-4 flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors text-sm font-bold">
+              <button onClick={handleLogout} className="w-full p-4 flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors text-sm font-bold">
                 <LogOut size={18} /> ログアウト
               </button>
             </div>
@@ -221,11 +255,9 @@ export default function AppShellV0() {
         <h1 className="text-lg font-extrabold tracking-tight"><span className="text-blue-600">Aero</span>Sync</h1>
         {isAdmin && <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-1 rounded-full">Admin</span>}
       </header>
-
       <main className="flex-1 overflow-y-auto pb-24">
         {renderContent()}
       </main>
-
       <nav className="fixed bottom-0 w-full bg-white border-t border-gray-200 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.04)] z-20">
         <div className="flex justify-around items-center h-16">
           <button onClick={() => setActiveTab("schedule")} className={`flex flex-col items-center justify-center w-full h-full ${activeTab === "schedule" ? "text-blue-600" : "text-gray-400"}`}>
