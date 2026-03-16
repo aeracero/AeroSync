@@ -5,16 +5,10 @@ import { NextResponse } from 'next/server'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  
-  // URL にエラーが含まれて戻ってきた場合
-  const error = searchParams.get('error')
-  const error_description = searchParams.get('error_description')
-  if (error) {
-    return NextResponse.redirect(`${origin}/?auth_error=${encodeURIComponent(error_description || error)}`)
-  }
+  const next = searchParams.get('next') ?? '/'
 
   if (code) {
-    const cookieStore = await cookies()
+    const cookieStore = await cookies() // Next.js 16ではawaitが必要です
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -26,18 +20,11 @@ export async function GET(request: Request) {
         },
       }
     )
-
-    const { error: sessionError } = await supabase.auth.exchangeCodeForSession(code)
-    
-    // セッション交換時にエラーが出た場合
-    if (sessionError) {
-      console.error("Session exchange error:", sessionError.message)
-      return NextResponse.redirect(`${origin}/?auth_error=${encodeURIComponent("コード交換失敗: " + sessionError.message)}`)
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (!error) {
+      return NextResponse.redirect(`${origin}${next}`)
     }
-    
-    // 成功したらトップページへ
-    return NextResponse.redirect(`${origin}/`)
   }
 
-  return NextResponse.redirect(`${origin}/?auth_error=${encodeURIComponent("認証コードが見つかりません")}`)
+  return NextResponse.redirect(`${origin}/auth/auth-code-error`)
 }
