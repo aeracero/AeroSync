@@ -218,7 +218,7 @@ export default function AppShellV0() {
   return (
     <div className="flex flex-col h-screen bg-gray-50 font-sans">
       <header className="bg-white text-gray-800 p-4 shadow-sm flex items-center justify-between z-10 relative">
-        <h1 className="text-lg font-extrabold tracking-tight"><span className="text-blue-600">Club</span>App</h1>
+        <h1 className="text-lg font-extrabold tracking-tight"><span className="text-blue-600">Aero</span>Sync</h1>
         {isAdmin && <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-1 rounded-full">Admin</span>}
       </header>
 
