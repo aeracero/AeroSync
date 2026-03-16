@@ -4,8 +4,8 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { 
   Calendar, Package, BookOpen, Settings, 
-  LogOut, Plus, ShieldAlert, ChevronRight, Trash2, AlertTriangle
-} from "lucide-react";
+  LogOut, Plus, ShieldAlert, ChevronRight, Trash2
+} from "lucide-react"; // AlertTriangle を削除し、安全な ShieldAlert に統一
 
 export default function AppShellV0() {
   const [isMounted, setIsMounted] = useState(false);
@@ -35,10 +35,9 @@ export default function AppShellV0() {
       const urlParams = new URLSearchParams(window.location.search);
       const error = urlParams.get('error_description') || urlParams.get('error');
       const customError = urlParams.get('auth_error');
-      if (error) setErrorMessage(`認証プロバイダからのエラー: ${error}`);
+      if (error) setErrorMessage(`認証エラー: ${error}`);
       if (customError) setErrorMessage(`システムエラー: ${customError}`);
       
-      // エラーを確認したらURLを綺麗にする
       if (error || customError) {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
@@ -57,14 +56,19 @@ export default function AppShellV0() {
       setSession(session);
     });
 
-    const savedSchedules = localStorage.getItem("club_schedules");
-    const savedInventory = localStorage.getItem("club_inventory");
-    const savedWikis = localStorage.getItem("club_wikis");
+    // データの読み込み（クラッシュ防止の安全対策を追加）
+    try {
+      const savedSchedules = localStorage.getItem("club_schedules");
+      const savedInventory = localStorage.getItem("club_inventory");
+      const savedWikis = localStorage.getItem("club_wikis");
 
-    if (savedSchedules) setSchedules(JSON.parse(savedSchedules));
-    if (savedInventory) setInventory(JSON.parse(savedInventory));
-    else setInventory([{ id: 1, name: "一眼レフカメラ", stock: 1, total: 1, image: "📷" }]);
-    if (savedWikis) setWikis(JSON.parse(savedWikis));
+      if (savedSchedules) setSchedules(JSON.parse(savedSchedules));
+      if (savedInventory) setInventory(JSON.parse(savedInventory));
+      else setInventory([{ id: 1, name: "一眼レフカメラ", stock: 1, total: 1, image: "📷" }]);
+      if (savedWikis) setWikis(JSON.parse(savedWikis));
+    } catch (e) {
+      console.error("データ読み込みエラー:", e);
+    }
 
     return () => subscription.unsubscribe();
   }, []);
@@ -77,14 +81,13 @@ export default function AppShellV0() {
     }
   }, [schedules, inventory, wikis, isMounted]);
 
-  // --- Discord ログイン処理（新方式：サーバー経由） ---
+  // --- Discord ログイン処理 ---
   const handleLogin = () => {
     setErrorMessage(null);
     try {
-      // クライアント側で直接 Supabase を呼ばず、自前のAPIルート（/auth/login）へ遷移させる
       window.location.href = '/auth/login';
     } catch (error: any) {
-      setErrorMessage(`リダイレクト開始エラー: ${error.message}`);
+      setErrorMessage(`リダイレクトエラー: ${error.message}`);
     }
   };
 
@@ -119,16 +122,15 @@ export default function AppShellV0() {
 
   if (!isMounted) return null;
 
-  // --- 未ログイン画面（エラー表示付き） ---
+  // --- 未ログイン画面 ---
   if (!session) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 font-sans">
         <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm text-center relative overflow-hidden">
           
-          {/* エラーメッセージ表示エリア */}
           {errorMessage && (
             <div className="absolute top-0 left-0 w-full bg-red-100 text-red-700 p-3 text-xs font-bold flex items-start gap-2 text-left">
-              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <ShieldAlert size={16} className="shrink-0 mt-0.5" />
               <span className="break-all">{errorMessage}</span>
             </div>
           )}
@@ -284,7 +286,7 @@ export default function AppShellV0() {
       <main className="flex-1 overflow-y-auto pb-24 relative">
         {errorMessage && (
            <div className="bg-red-100 text-red-700 p-3 text-xs font-bold flex items-start gap-2 m-4 rounded-lg">
-             <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+             <ShieldAlert size={16} className="shrink-0 mt-0.5" />
              <span className="break-all">{errorMessage}</span>
            </div>
         )}
