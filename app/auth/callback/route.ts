@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const next = searchParams.get('next') ?? '/'
 
   if (code) {
-    const cookieStore = await cookies() // ここが await になるのが最新版のポイントです
+    const cookieStore = await cookies() // Next.js 16ではawaitが必要です
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -26,6 +26,5 @@ export async function GET(request: Request) {
     }
   }
 
-  // エラー時はエラーページ（またはトップ）へ
   return NextResponse.redirect(`${origin}/auth/auth-code-error`)
 }
