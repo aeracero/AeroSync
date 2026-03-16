@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../lib/supabase"; // 最新のCookie対応版クライアント
 import { 
   Calendar, Package, BookOpen, Settings, 
   LogOut, Plus, ShieldAlert, ChevronRight, Trash2
-} from "lucide-react"; // AlertTriangle を削除し、安全な ShieldAlert に統一
+} from "lucide-react";
 
 export default function AppShellV0() {
   const [isMounted, setIsMounted] = useState(false);
@@ -30,7 +30,7 @@ export default function AppShellV0() {
   useEffect(() => {
     setIsMounted(true);
     
-    // URLからエラーメッセージを取得して表示する（デバッグ用）
+    // URLのエラーをキャッチ
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       const error = urlParams.get('error_description') || urlParams.get('error');
@@ -45,10 +45,7 @@ export default function AppShellV0() {
     
     // ログイン状態の監視
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error("Session fetch error:", error);
-        setErrorMessage(`セッション取得エラー: ${error.message}`);
-      }
+      if (error) setErrorMessage(`セッション取得エラー: ${error.message}`);
       setSession(session);
     });
 
@@ -56,7 +53,6 @@ export default function AppShellV0() {
       setSession(session);
     });
 
-    // データの読み込み（クラッシュ防止の安全対策を追加）
     try {
       const savedSchedules = localStorage.getItem("club_schedules");
       const savedInventory = localStorage.getItem("club_inventory");
@@ -67,7 +63,7 @@ export default function AppShellV0() {
       else setInventory([{ id: 1, name: "一眼レフカメラ", stock: 1, total: 1, image: "📷" }]);
       if (savedWikis) setWikis(JSON.parse(savedWikis));
     } catch (e) {
-      console.error("データ読み込みエラー:", e);
+      console.error(e);
     }
 
     return () => subscription.unsubscribe();
@@ -82,12 +78,18 @@ export default function AppShellV0() {
   }, [schedules, inventory, wikis, isMounted]);
 
   // --- Discord ログイン処理 ---
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setErrorMessage(null);
     try {
-      window.location.href = '/auth/login';
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'discord',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+      if (error) throw error;
     } catch (error: any) {
-      setErrorMessage(`リダイレクトエラー: ${error.message}`);
+      setErrorMessage(`ログイン開始エラー: ${error.message}`);
     }
   };
 
@@ -122,19 +124,16 @@ export default function AppShellV0() {
 
   if (!isMounted) return null;
 
-  // --- 未ログイン画面 ---
   if (!session) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 font-sans">
         <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm text-center relative overflow-hidden">
-          
           {errorMessage && (
             <div className="absolute top-0 left-0 w-full bg-red-100 text-red-700 p-3 text-xs font-bold flex items-start gap-2 text-left">
               <ShieldAlert size={16} className="shrink-0 mt-0.5" />
               <span className="break-all">{errorMessage}</span>
             </div>
           )}
-
           <div className={`w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-md ${errorMessage ? 'mt-10' : ''}`}>
             <span className="text-2xl font-bold">Aero</span>
           </div>
