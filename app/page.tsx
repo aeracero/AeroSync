@@ -1,36 +1,28 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { supabase } from "../lib/supabase";
+import { createClient } from "../lib/supabase";
 import {
   Calendar, Package, BookOpen, Settings,
   LogOut, Plus, ShieldAlert, ChevronRight, Trash2, Loader2
 } from "lucide-react";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 type Schedule      = { id: number; title: string; date: string };
 type InventoryItem = { id: number; name: string; stock: number; total: number; image: string };
 type Wiki          = { id: number; title: string; date: string; type: string };
 type Tab           = "schedule" | "inventory" | "wiki" | "settings";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 function loadFromStorage<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
     const raw = localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
+  } catch { return fallback; }
 }
 
 const DEFAULT_INVENTORY: InventoryItem[] = [
   { id: 1, name: "一眼レフカメラ", stock: 1, total: 1, image: "📷" },
 ];
-
-// ─── Small reusable UI components ────────────────────────────────────────────
 
 function AdminForm({ children, label }: { children: React.ReactNode; label: string }) {
   return (
@@ -52,10 +44,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
 
 function AddButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
-    <button
-      onClick={onClick}
-      className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl py-2 text-sm font-bold flex justify-center items-center gap-1.5 transition-all"
-    >
+    <button onClick={onClick} className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl py-2 text-sm font-bold flex justify-center items-center gap-1.5 transition-all">
       <Plus size={15} /> {label}
     </button>
   );
@@ -73,11 +62,9 @@ function DiscordIcon() {
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 export default function AppShell() {
   const [isMounted,    setIsMounted]    = useState(false);
-  const [session,      setSession]      = useState<any>(undefined); // undefined = loading, null = logged out
+  const [session,      setSession]      = useState<any>(undefined);
   const [isAdmin,      setIsAdmin]      = useState(false);
   const [activeTab,    setActiveTab]    = useState<Tab>("schedule");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -96,10 +83,13 @@ export default function AppShell() {
   const [newWikiTitle, setNewWikiTitle] = useState("");
   const [newWikiType,  setNewWikiType]  = useState("Slide");
 
-  // ── Mount + auth + URL error detection ───────────────────────────────────
-
   useEffect(() => {
     setIsMounted(true);
+
+    // FIX: create a fresh client instance per render — never use a module-level singleton
+    // A shared singleton loses the PKCE code_verifier cookie between the login redirect
+    // and the callback, causing "OAuth state parameter missing"
+    const supabase = createClient();
 
     const urlParams   = new URLSearchParams(window.location.search);
     const error       = urlParams.get("error_description") || urlParams.get("error");
@@ -109,11 +99,10 @@ export default function AppShell() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
-    // FIX: getUser() validates JWT server-side; getSession() can return stale localStorage data
     supabase.auth.getUser().then(({ data: { user }, error: userError }) => {
       if (userError) { setSession(null); return; }
       if (user) {
-        supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+        supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
       } else {
         setSession(null);
       }
@@ -130,8 +119,6 @@ export default function AppShell() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Persist to localStorage ───────────────────────────────────────────────
-
   useEffect(() => {
     if (!isMounted) return;
     localStorage.setItem("club_schedules", JSON.stringify(schedules));
@@ -139,12 +126,12 @@ export default function AppShell() {
     localStorage.setItem("club_wikis",     JSON.stringify(wikis));
   }, [schedules, inventory, wikis, isMounted]);
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
-
   const handleLogin = async () => {
     setErrorMessage(null);
     setAuthLoading(true);
     try {
+      // FIX: fresh client on every login call
+      const supabase = createClient();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "discord",
         options: { redirectTo: `${window.location.origin}/auth/callback` },
@@ -157,11 +144,10 @@ export default function AppShell() {
   };
 
   const handleLogout = async () => {
+    const supabase = createClient();
     const { error } = await supabase.auth.signOut();
     if (error) setErrorMessage(`ログアウトエラー: ${error.message}`);
   };
-
-  // ── Data mutations (all use state setters directly in scope) ─────────────
 
   const handleAddSchedule = useCallback(() => {
     if (!newScheduleTitle.trim() || !newScheduleDate) return;
@@ -184,12 +170,9 @@ export default function AppShell() {
     setNewWikiTitle("");
   }, [newWikiTitle, newWikiType]);
 
-  // FIX: setters called directly — no need to pass them as args
   const deleteSchedule  = useCallback((id: number) => setSchedules(p  => p.filter(x => x.id !== id)), []);
   const deleteInventory = useCallback((id: number) => setInventory(p  => p.filter(x => x.id !== id)), []);
   const deleteWiki      = useCallback((id: number) => setWikis(p      => p.filter(x => x.id !== id)), []);
-
-  // ── Guards ────────────────────────────────────────────────────────────────
 
   if (!isMounted || session === undefined) {
     return (
@@ -228,8 +211,6 @@ export default function AppShell() {
       </div>
     );
   }
-
-  // ── Authenticated shell ───────────────────────────────────────────────────
 
   const userProfile = session.user?.user_metadata ?? {};
 
@@ -288,9 +269,7 @@ export default function AppShell() {
                   )}
                   <div className="w-14 h-14 bg-gray-50 rounded-xl flex items-center justify-center text-3xl mb-2">{item.image}</div>
                   <p className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight mb-2">{item.name}</p>
-                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full w-full ${
-                    item.stock === 0 ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"
-                  }`}>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full w-full ${item.stock === 0 ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"}`}>
                     残: {item.stock} / {item.total}
                   </span>
                 </div>
@@ -306,11 +285,8 @@ export default function AppShell() {
             {isAdmin && (
               <AdminForm label="Wikiを追加">
                 <div className="flex gap-2">
-                  <select
-                    value={newWikiType}
-                    onChange={e => setNewWikiType(e.target.value)}
-                    className="border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-                  >
+                  <select value={newWikiType} onChange={e => setNewWikiType(e.target.value)}
+                    className="border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
                     <option value="Slide">Slide</option>
                     <option value="Doc">Doc</option>
                   </select>
@@ -369,32 +345,22 @@ export default function AppShell() {
                   <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4" />
                 </label>
               </div>
-              <button
-                onClick={handleLogout}
-                className="w-full p-4 flex items-center gap-3 text-red-500 hover:bg-red-50 transition-colors text-sm font-bold"
-              >
+              <button onClick={handleLogout} className="w-full p-4 flex items-center gap-3 text-red-500 hover:bg-red-50 transition-colors text-sm font-bold">
                 <LogOut size={16} /> ログアウト
               </button>
             </div>
           </div>
         );
 
-      default:
-        return null;
+      default: return null;
     }
   };
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 font-sans">
       <header className="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
-        <h1 className="text-lg font-extrabold tracking-tight">
-          <span className="text-blue-600">Aero</span>Sync
-        </h1>
-        {isAdmin && (
-          <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2.5 py-1 rounded-full border border-blue-100">
-            Admin
-          </span>
-        )}
+        <h1 className="text-lg font-extrabold tracking-tight"><span className="text-blue-600">Aero</span>Sync</h1>
+        {isAdmin && <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2.5 py-1 rounded-full border border-blue-100">Admin</span>}
       </header>
 
       {errorMessage && (
@@ -404,9 +370,7 @@ export default function AppShell() {
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto pb-24">
-        {renderContent()}
-      </main>
+      <main className="flex-1 overflow-y-auto pb-24">{renderContent()}</main>
 
       <nav className="fixed bottom-0 w-full bg-white border-t border-gray-100 pb-safe z-20">
         <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
@@ -416,12 +380,8 @@ export default function AppShell() {
             { id: "wiki",      Icon: BookOpen, label: "Wiki"  },
             { id: "settings",  Icon: Settings, label: "設定"  },
           ] as const).map(({ id, Icon, label }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-colors
-                ${activeTab === id ? "text-blue-600" : "text-gray-400 hover:text-gray-600"}`}
-            >
+            <button key={id} onClick={() => setActiveTab(id)}
+              className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-colors ${activeTab === id ? "text-blue-600" : "text-gray-400 hover:text-gray-600"}`}>
               <Icon size={22} strokeWidth={activeTab === id ? 2.5 : 1.8} />
               <span className="text-[10px] font-bold">{label}</span>
             </button>
