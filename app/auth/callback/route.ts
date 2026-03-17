@@ -1,5 +1,4 @@
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
@@ -12,52 +11,24 @@ export async function GET(request: Request) {
   const errorDescription = searchParams.get('error_description')
 
   console.log("[DEBUG] URL:", request.url)
-  console.log("[DEBUG] Auth Code:", code ? "取得成功" : "なし")
+  console.log("[DEBUG] Code:", code ? "取得成功" : "なし")
 
-  // 1. Discord側でキャンセルやエラーがあった場合
   if (errorFromDiscord) {
-    console.error("[DEBUG] Discordからエラーが返されました:", errorFromDiscord, errorDescription)
+    console.error("[DEBUG] Discordエラー:", errorFromDiscord, errorDescription)
     return NextResponse.redirect(
       `${origin}/?error=${errorFromDiscord}&auth_error=${encodeURIComponent(errorDescription || 'Unknown')}`
     )
   }
 
-  // 2. 正常にコードが送られてきた場合
   if (code) {
     try {
-      const cookieStore = await cookies()
-
-      const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          cookies: {
-            // ✅ Fixed: use getAll/setAll (required for @supabase/ssr ^0.5.x)
-            getAll() {
-              const all = cookieStore.getAll()
-              console.log(`[DEBUG] クッキー一覧読み込み: ${all.map(c => c.name).join(', ') || 'なし'}`)
-              return all
-            },
-            setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
-              try {
-                cookiesToSet.forEach(({ name, value, options }) => {
-                  console.log(`[DEBUG] クッキー書き込み (${name})`)
-                  cookieStore.set(name, value, options)
-                })
-              } catch (e) {
-                // Server Components context is read-only — safe to ignore here
-                console.log("[DEBUG] クッキー書き込みスキップ (Server Component context)")
-              }
-            },
-          },
-        }
-      )
-
-      console.log("[DEBUG] Supabaseにコードを送信してセッションと交換します...")
+      // Use the proper server client from lib/supabase/server — it handles
+      // cookies via getAll/setAll correctly for @supabase/ssr ^0.5.x
+      const supabase = await createClient()
       const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
       if (error) {
-        console.error("[DEBUG] 🚨セッション交換エラー🚨:", error.name, error.message)
+        console.error("[DEBUG] セッション交換エラー:", error.message)
         return NextResponse.redirect(
           `${origin}/?error=auth_callback_failed&auth_error=${encodeURIComponent(error.message)}`
         )
@@ -67,15 +38,13 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/`)
 
     } catch (err: any) {
-      console.error("[DEBUG] 🚨予期せぬシステムエラー🚨:", err)
+      console.error("[DEBUG] システムエラー:", err)
       return NextResponse.redirect(
         `${origin}/?error=system_error&auth_error=${encodeURIComponent(err.message)}`
       )
     }
   }
 
-  // コードもエラーもURLに無い場合（直接アクセスなど）
-  console.log("[DEBUG] コードがURLに含まれていません。")
   return NextResponse.redirect(
     `${origin}/?error=no_code_provided&auth_error=${encodeURIComponent("認証コードが見つかりません")}`
   )
