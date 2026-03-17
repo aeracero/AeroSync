@@ -212,28 +212,37 @@ export default function AppShell() {
     registerSW();
     const supabase = createClient();
 
-    // Text selection tooltip
+    // Text selection tooltip — use pointerup (fires once after drag ends, works on both PC & mobile)
     function handleSelectionChange() {
-      // Small delay so the selection rect is finalised
-      setTimeout(() => {
+      try {
         const sel = window.getSelection();
         const text = sel?.toString().trim() ?? "";
         const activeEl = document.activeElement;
         const isInput = activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement;
-        if (!isInput && text.length > 3 && text.length < 500 && sel && sel.rangeCount > 0) {
-          try {
-            const range = sel.getRangeAt(0);
-            const rect = range.getBoundingClientRect();
-            if (rect.width > 0) {
-              setSelectionTooltip({ text, x: rect.left + rect.width / 2, y: rect.top });
-            }
-          } catch { setSelectionTooltip(null); }
-        } else {
+        if (isInput || text.length <= 3 || text.length >= 500) {
           setSelectionTooltip(null);
+          return;
         }
-      }, 50);
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            // Use viewport coords (fixed positioning handles scroll automatically)
+            setSelectionTooltip({ text, x: rect.left + rect.width / 2, y: rect.top });
+          }
+        }
+      } catch { setSelectionTooltip(null); }
     }
-    document.addEventListener("selectionchange", handleSelectionChange);
+    // pointerup fires once when the user lifts finger/mouse — much safer than selectionchange
+    document.addEventListener("pointerup", handleSelectionChange);
+    // Also clear tooltip when clicking elsewhere
+    function handlePointerDown(e: PointerEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-selection-tooltip]")) {
+        setSelectionTooltip(null);
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
     const urlParams = new URLSearchParams(window.location.search);
     const err = urlParams.get("error_description")||urlParams.get("error");
     const cerr = urlParams.get("auth_error");
@@ -256,7 +265,7 @@ export default function AppShell() {
     setNotifEnabled(typeof Notification!=="undefined"&&Notification.permission==="granted");
     setChatMessages(loadLS("as_chat",[]));
 
-    return () => { subscription.unsubscribe(); document.removeEventListener("selectionchange", handleSelectionChange); };
+    return () => { subscription.unsubscribe(); document.removeEventListener("pointerup", handleSelectionChange); document.removeEventListener("pointerdown", handlePointerDown); };
   }, []);
 
   useEffect(()=>{
@@ -946,7 +955,7 @@ export default function AppShell() {
 
       {/* ── Text Selection AI Tooltip ───────────────────────────────────── */}
       {selectionTooltip && (
-        <div style={{position:"fixed",left:selectionTooltip.x,top:selectionTooltip.y,transform:"translateX(-50%) translateY(-100%)",zIndex:60,animation:"tooltipIn 0.2s ease-out",pointerEvents:"auto"}}>
+        <div data-selection-tooltip="true" style={{position:"fixed",left:selectionTooltip.x,top:selectionTooltip.y,transform:"translateX(-50%) translateY(-100%)",zIndex:60,animation:"tooltipIn 0.2s ease-out",pointerEvents:"auto"}}>
           <button
             onMouseDown={e=>{e.preventDefault(); const q=`次のテキストについて教えてください: "${selectionTooltip.text.slice(0,200)}"`; pendingSendRef.current=true; setChatInput(q); setChatOpen(true); setSelectionTooltip(null); window.getSelection()?.removeAllRanges();}}
             className="flex items-center gap-1.5 bg-gray-900 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xl whitespace-nowrap hover:bg-blue-700 transition-colors">
