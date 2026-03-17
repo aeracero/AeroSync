@@ -279,7 +279,7 @@ export default function AppShell() {
   // ── Tasks ─────────────────────────────────────────────────────────────────
   const addTask = useCallback(()=>{
     if(!newTask.title.trim())return;
-    setTasks(prev=>[...prev,{id:Date.now().toString(),...newTask,title:newTask.title.trim(),date:selectedDate,description:newTask.desc.trim(),done:false}]);
+    setTasks(prev=>[...prev,{id:Date.now().toString(),title:newTask.title.trim(),date:selectedDate,description:newTask.desc.trim(),done:false,color:newTask.color,openJoin:newTask.open,assignees:newTask.assignees,priority:newTask.priority,location:newTask.location}]);
     setNewTask({title:"",desc:"",color:TASK_COLORS[0],open:true,assignees:[],priority:"medium",location:""});
     setShowTaskForm(false);
   },[newTask,selectedDate]);
