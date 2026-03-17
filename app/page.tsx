@@ -30,26 +30,28 @@ export default function AppShellV0() {
   useEffect(() => {
     setIsMounted(true);
     
-    // URLのエラーをキャッチ
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       const error = urlParams.get('error_description') || urlParams.get('error');
-      const customError = urlParams.get('auth_error');
-      if (error) setErrorMessage(`認証エラー: ${error}`);
-      if (customError) setErrorMessage(`システムエラー: ${customError}`);
+      const customError = urlParams.get('auth_error'); // サーバーからの詳細な文句
       
       if (error || customError) {
+        console.error("=== [DEBUG] URLからエラーを検知しました ===");
+        console.error("Error:", error);
+        console.error("Details:", customError);
+        setErrorMessage(`【認証失敗】 ${error || ''} - 詳細: ${customError || 'なし'}`);
+        // 履歴からエラーURLを消す
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
     
-    // ログイン状態の監視
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) setErrorMessage(`セッション取得エラー: ${error.message}`);
+      if (error) console.error("[DEBUG] セッション取得エラー:", error);
       setSession(session);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log("[DEBUG] 認証状態が変化しました:", _event, !!session);
       setSession(session);
     });
 
@@ -77,17 +79,24 @@ export default function AppShellV0() {
     }
   }, [schedules, inventory, wikis, isMounted]);
 
-  // --- Discord ログイン処理 ---
   const handleLogin = async () => {
     setErrorMessage(null);
+    console.log("=== [DEBUG] ログイン処理開始 ===");
+    const redirectUrl = `${window.location.origin}/auth/callback`;
+    console.log("[DEBUG] 指定した戻り先URL:", redirectUrl);
+    
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'discord',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`
+          redirectTo: redirectUrl
         }
       });
-      if (error) throw error;
+      if (error) {
+        console.error("[DEBUG] Supabase signInWithOAuth エラー:", error);
+        throw error;
+      }
+      console.log("[DEBUG] Discordへリダイレクトします...");
     } catch (error: any) {
       setErrorMessage(`ログイン開始エラー: ${error.message}`);
     }
@@ -129,7 +138,7 @@ export default function AppShellV0() {
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 font-sans">
         <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm text-center relative overflow-hidden">
           {errorMessage && (
-            <div className="absolute top-0 left-0 w-full bg-red-100 text-red-700 p-3 text-xs font-bold flex items-start gap-2 text-left">
+            <div className="absolute top-0 left-0 w-full bg-red-100 text-red-700 p-3 text-xs font-bold flex items-start gap-2 text-left z-50">
               <ShieldAlert size={16} className="shrink-0 mt-0.5" />
               <span className="break-all">{errorMessage}</span>
             </div>
@@ -284,6 +293,7 @@ export default function AppShellV0() {
         {isAdmin && <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-1 rounded-full">Admin</span>}
       </header>
       <main className="flex-1 overflow-y-auto pb-24 relative">
+        {/* メイン画面側のエラー表示（念のため） */}
         {errorMessage && (
            <div className="bg-red-100 text-red-700 p-3 text-xs font-bold flex items-start gap-2 m-4 rounded-lg">
              <ShieldAlert size={16} className="shrink-0 mt-0.5" />
