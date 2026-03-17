@@ -1,0 +1,20 @@
+{
+  "name": "AeroSync",
+  "short_name": "AeroSync",
+  "description": "課外活動をスマートに同期",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f0f4ff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["productivity", "education"],
+  "shortcuts": [
+    { "name": "スケジュール", "url": "/?tab=schedule", "description": "スケジュールを表示" },
+    { "name": "在庫", "url": "/?tab=inventory", "description": "在庫を表示" },
+    { "name": "Wiki", "url": "/?tab=wiki", "description": "Wikiを表示" }
+  ]
+}
