@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Tab = "schedule" | "inventory" | "wiki" | "settings" | "chat";
+type Tab = "schedule" | "inventory" | "wiki" | "settings";
 type AuthMode = "login" | "signup" | "check_email";
 type Task = { id: string; title: string; date: string; description: string; assignees: string[]; openJoin: boolean; color: string; done: boolean; priority: "low"|"medium"|"high"; location?: string; };
 type Availability = { userId: string; name: string; date: string; status: "available"|"maybe"|"unavailable"; note: string; };
@@ -203,6 +203,7 @@ export default function AppShell() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [selectionTooltip, setSelectionTooltip] = useState<{text:string;x:number;y:number}|null>(null);
 
   const currentUserEmail = session?.user?.email ?? session?.user?.user_metadata?.full_name ?? "me";
 
@@ -210,6 +211,20 @@ export default function AppShell() {
     setIsMounted(true);
     registerSW();
     const supabase = createClient();
+
+    // Text selection tooltip
+    function handleSelectionChange() {
+      const sel = window.getSelection();
+      const text = sel?.toString().trim() ?? "";
+      if (text.length > 3 && text.length < 500 && sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        setSelectionTooltip({ text, x: rect.left + rect.width / 2, y: rect.top - 10 });
+      } else {
+        setSelectionTooltip(null);
+      }
+    }
+    document.addEventListener("selectionchange", handleSelectionChange);
     const urlParams = new URLSearchParams(window.location.search);
     const err = urlParams.get("error_description")||urlParams.get("error");
     const cerr = urlParams.get("auth_error");
@@ -251,6 +266,15 @@ export default function AppShell() {
 
   useEffect(()=>{ if(searchOpen) setTimeout(()=>searchRef.current?.focus(),100); },[searchOpen]);
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[chatMessages]);
+
+  // Auto-send when chat opened from text selection (input already filled)
+  const pendingSendRef = useRef(false);
+  useEffect(()=>{
+    if(chatOpen && chatInput && pendingSendRef.current){
+      pendingSendRef.current = false;
+      sendChat();
+    }
+  },[chatOpen, chatInput]);
 
   // Check user availability for selected date
   useEffect(()=>{
@@ -773,58 +797,6 @@ export default function AppShell() {
       </div>
     );
 
-    // ── Chat ──────────────────────────────────────────────────────────────────
-    if (activeTab==="chat") return (
-      <div className={`flex flex-col h-[calc(100vh-8rem)] ${fadeIn}`}>
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {chatMessages.length===0 && (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
-              <div className={`w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center shadow-lg shadow-blue-200 ${pulse}`}>
-                <Sparkles size={28} className="text-white"/>
-              </div>
-              <div>
-                <p className="font-bold text-gray-900 text-base mb-1">AeroSync AI</p>
-                <p className="text-sm text-gray-500 max-w-xs">スケジュール、在庫、Wikiについて何でも聞いてください。</p>
-              </div>
-              <div className="space-y-2 w-full max-w-xs">
-                {["今日のタスクを教えて","在庫が少ないものは？","タスクの追加方法は？"].map(q=>(
-                  <button key={q} onClick={()=>setChatInput(q)} className="w-full text-sm bg-white border border-gray-200 rounded-2xl px-4 py-2.5 text-gray-700 hover:border-blue-300 hover:bg-blue-50 transition-all text-left flex items-center gap-2">
-                    <MessageCircle size={14} className="text-blue-400 shrink-0"/>{q}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {chatMessages.map((m,i)=>(
-            <div key={i} className={`flex gap-2.5 ${m.role==="user"?"flex-row-reverse":""} ${fadeIn}`}>
-              <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${m.role==="assistant"?"bg-gradient-to-br from-blue-500 to-indigo-600":"bg-gray-200"}`}>
-                {m.role==="assistant"?<Bot size={14} className="text-white"/>:<span className="text-xs font-bold text-gray-600">{displayName.charAt(0).toUpperCase()}</span>}
-              </div>
-              <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${m.role==="user"?"bg-blue-600 text-white rounded-tr-sm":"bg-white border border-gray-100 text-gray-800 shadow-sm rounded-tl-sm"}`}>
-                {m.content}
-              </div>
-            </div>
-          ))}
-          {chatLoading && (
-            <div className="flex gap-2.5">
-              <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0"><Bot size={14} className="text-white"/></div>
-              <div className="bg-white border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex gap-1.5 items-center">
-                {[0,1,2].map(i=><div key={i} className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay:`${i*0.15}s`}}/>)}
-              </div>
-            </div>
-          )}
-          <div ref={chatEndRef}/>
-        </div>
-        <div className="p-3 bg-white border-t border-gray-100 flex gap-2">
-          <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendChat()}
-            placeholder="メッセージを入力..." className="flex-1 bg-gray-100 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:bg-white transition"/>
-          <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()}
-            className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center text-white hover:bg-blue-700 disabled:opacity-50 transition-all active:scale-95 shadow-sm shadow-blue-200">
-            <Send size={16}/>
-          </button>
-        </div>
-      </div>
-    );
 
     return null;
   };
@@ -834,6 +806,10 @@ export default function AppShell() {
       <style>{`
         @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
         @keyframes slideUp { from{opacity:0;transform:translateY(40px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
+        @keyframes scaleIn { from{opacity:0;transform:scale(0.85) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
+        @keyframes floatPulse { 0%,100%{transform:scale(1) translateY(0);box-shadow:0 8px 32px rgba(37,99,235,0.4)} 50%{transform:scale(1.06) translateY(-2px);box-shadow:0 12px 40px rgba(37,99,235,0.55)} }
+        @keyframes tooltipIn { from{opacity:0;transform:translateX(-50%) translateY(4px) scale(0.95)} to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)} }
+        @keyframes ripple { from{transform:scale(0.8);opacity:1} to{transform:scale(2.2);opacity:0} }
       `}</style>
 
       {/* Header */}
@@ -865,7 +841,6 @@ export default function AppShell() {
             {id:"schedule",Icon:Calendar,label:"予定"},
             {id:"inventory",Icon:Package,label:"在庫"},
             {id:"wiki",Icon:BookOpen,label:"Wiki"},
-            {id:"chat",Icon:MessageCircle,label:"AI"},
             {id:"settings",Icon:Settings,label:"設定"},
           ] as const).map(({id,Icon,label})=>(
             <button key={id} onClick={()=>{setActiveTab(id);setActiveWiki(null);}}
@@ -878,6 +853,97 @@ export default function AppShell() {
           ))}
         </div>
       </nav>
+
+      {/* ── Floating AI Button ─────────────────────────────────────────── */}
+      {!chatOpen && (
+        <button
+          onClick={()=>setChatOpen(true)}
+          style={{animation:"floatPulse 3s ease-in-out infinite"}}
+          className="fixed bottom-24 right-4 z-40 w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-400/50 active:scale-90 transition-transform"
+          aria-label="AI アシスタント">
+          <div className="absolute inset-0 rounded-2xl bg-blue-400 opacity-30" style={{animation:"ripple 2.5s ease-out infinite"}}/>
+          <Sparkles size={22} className="text-white relative z-10"/>
+        </button>
+      )}
+
+      {/* ── AI Chat Panel ───────────────────────────────────────────────── */}
+      {chatOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-end pointer-events-none">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm pointer-events-auto" onClick={()=>setChatOpen(false)}/>
+          {/* Panel */}
+          <div className="relative pointer-events-auto w-full max-w-sm mx-auto mb-0 sm:mb-6 sm:mr-6 bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl shadow-blue-200/60 flex flex-col overflow-hidden border border-blue-100"
+            style={{height:"72vh",maxHeight:"600px",animation:"scaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1)"}}>
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 bg-gradient-to-r from-blue-600 to-indigo-600 shrink-0">
+              <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center"><Sparkles size={16} className="text-white"/></div>
+              <div className="flex-1">
+                <p className="text-sm font-black text-white">AeroSync AI</p>
+                <p className="text-[10px] text-blue-200">Powered by Gemini</p>
+              </div>
+              <button onClick={()=>setChatOpen(false)} className="w-7 h-7 bg-white/20 rounded-lg flex items-center justify-center hover:bg-white/30 transition-colors">
+                <X size={14} className="text-white"/>
+              </button>
+            </div>
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/50">
+              {chatMessages.length===0 && (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-6">
+                  <p className="font-bold text-gray-700 text-sm">何でも聞いてください</p>
+                  <p className="text-xs text-gray-400 max-w-[200px]">テキストを選択して「AIに聞く」ボタンを使うこともできます</p>
+                  <div className="space-y-2 w-full mt-2">
+                    {["今日のタスクを教えて","在庫が少ないものは？","タスクの追加方法は？"].map(q=>(
+                      <button key={q} onClick={()=>setChatInput(q)} className="w-full text-xs bg-white border border-gray-200 rounded-xl px-3 py-2 text-gray-600 hover:border-blue-300 hover:bg-blue-50 transition-all text-left flex items-center gap-2 shadow-sm">
+                        <MessageCircle size={12} className="text-blue-400 shrink-0"/>{q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {chatMessages.map((m,i)=>(
+                <div key={i} className={`flex gap-2 ${m.role==="user"?"flex-row-reverse":""}`} style={{animation:"fadeIn 0.25s ease-out"}}>
+                  <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${m.role==="assistant"?"bg-gradient-to-br from-blue-500 to-indigo-600":"bg-gray-200"}`}>
+                    {m.role==="assistant"?<Bot size={12} className="text-white"/>:<span className="text-[10px] font-bold text-gray-600">{displayName.charAt(0).toUpperCase()}</span>}
+                  </div>
+                  <div className={`max-w-[82%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${m.role==="user"?"bg-blue-600 text-white rounded-tr-sm":"bg-white border border-gray-100 text-gray-800 shadow-sm rounded-tl-sm"}`}>
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="flex gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0"><Bot size={12} className="text-white"/></div>
+                  <div className="bg-white border border-gray-100 rounded-2xl rounded-tl-sm px-3 py-2.5 shadow-sm flex gap-1 items-center">
+                    {[0,1,2].map(i=><div key={i} className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{animationDelay:`${i*0.15}s`}}/>)}
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef}/>
+            </div>
+            {/* Input */}
+            <div className="p-3 bg-white border-t border-gray-100 flex gap-2 shrink-0">
+              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendChat()}
+                placeholder="メッセージを入力..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:bg-white transition"/>
+              <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()}
+                className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white hover:bg-blue-700 disabled:opacity-40 transition-all active:scale-95 shadow-sm">
+                <Send size={14}/>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Text Selection AI Tooltip ───────────────────────────────────── */}
+      {selectionTooltip && (
+        <div style={{position:"fixed",left:selectionTooltip.x,top:selectionTooltip.y,transform:"translateX(-50%) translateY(-100%)",zIndex:60,animation:"tooltipIn 0.2s ease-out",pointerEvents:"auto"}}>
+          <button
+            onMouseDown={e=>{e.preventDefault(); const q=`次のテキストについて教えてください: "${selectionTooltip.text.slice(0,200)}"`; pendingSendRef.current=true; setChatInput(q); setChatOpen(true); setSelectionTooltip(null); window.getSelection()?.removeAllRanges();}}
+            className="flex items-center gap-1.5 bg-gray-900 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xl whitespace-nowrap hover:bg-blue-700 transition-colors">
+            <Sparkles size={11}/> AIに聞く
+          </button>
+          <div className="w-2.5 h-2.5 bg-gray-900 rotate-45 mx-auto -mt-1.5 rounded-sm"/>
+        </div>
+      )}
 
       {/* Search overlay */}
       {searchOpen && (
