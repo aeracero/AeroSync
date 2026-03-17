@@ -771,7 +771,7 @@ export default function AppShell() {
               </div>
               <div className="shrink-0">
                 {userProfile?.avatar_url
-                  ? <img src={userProfile.avatar_url} alt="avatar" className="w-16 h-16 rounded-2xl ring-2 shadow-lg" style={{ringColor:appearance.accentColor+"44"}}/>
+                  ? <img src={userProfile.avatar_url} alt="avatar" className="w-16 h-16 rounded-2xl shadow-lg" style={{outline:`3px solid ${appearance.accentColor}44`,outlineOffset:"2px"}}/>
                   : <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-black text-white shadow-lg" style={{background:`linear-gradient(135deg, ${appearance.accentColor}, ${appearance.accentColor}bb)`}}>
                       {(userProfile?.full_name ?? session.user?.email ?? "U").charAt(0).toUpperCase()}
                     </div>
