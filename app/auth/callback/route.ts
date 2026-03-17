@@ -22,8 +22,6 @@ export async function GET(request: Request) {
 
   if (code) {
     try {
-      // Use the proper server client from lib/supabase/server — it handles
-      // cookies via getAll/setAll correctly for @supabase/ssr ^0.5.x
       const supabase = await createClient()
       const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
