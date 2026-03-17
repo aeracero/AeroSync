@@ -1,53 +1,90 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
-import { 
-  Calendar, Package, BookOpen, Settings, 
-  LogOut, Plus, ShieldAlert, ChevronRight, Trash2
+import {
+  Calendar, Package, BookOpen, Settings,
+  LogOut, Plus, ShieldAlert, ChevronRight, Trash2, Loader2
 } from "lucide-react";
 
-export default function AppShellV0() {
-  const [isMounted, setIsMounted] = useState(false);
-  const [session, setSession] = useState<any>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [activeTab, setActiveTab] = useState("schedule");
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type Schedule  = { id: number; title: string; date: string };
+type InventoryItem = { id: number; name: string; stock: number; total: number; image: string };
+type Wiki      = { id: number; title: string; date: string; type: string };
+type Tab       = "schedule" | "inventory" | "wiki" | "settings";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function loadFromStorage<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const DEFAULT_INVENTORY: InventoryItem[] = [
+  { id: 1, name: "一眼レフカメラ", stock: 1, total: 1, image: "📷" },
+];
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export default function AppShell() {
+  const [isMounted,  setIsMounted]  = useState(false);
+  // FIX: use null to mean "loading", undefined means "checked, not logged in"
+  const [session,    setSession]    = useState<any>(undefined);
+  const [isAdmin,    setIsAdmin]    = useState(false);
+  const [activeTab,  setActiveTab]  = useState<Tab>("schedule");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
 
-  const [schedules, setSchedules] = useState<{id: number, title: string, date: string}[]>([]);
+  const [schedules,       setSchedules]       = useState<Schedule[]>([]);
   const [newScheduleTitle, setNewScheduleTitle] = useState("");
-  const [newScheduleDate, setNewScheduleDate] = useState("");
+  const [newScheduleDate,  setNewScheduleDate]  = useState("");
 
-  const [inventory, setInventory] = useState<{id: number, name: string, stock: number, total: number, image: string}[]>([]);
+  const [inventory,  setInventory]  = useState<InventoryItem[]>([]);
   const [newInvName, setNewInvName] = useState("");
   const [newInvTotal, setNewInvTotal] = useState("");
   const [newInvEmoji, setNewInvEmoji] = useState("📦");
 
-  const [wikis, setWikis] = useState<{id: number, title: string, date: string, type: string}[]>([]);
+  const [wikis,       setWikis]       = useState<Wiki[]>([]);
   const [newWikiTitle, setNewWikiTitle] = useState("");
-  const [newWikiType, setNewWikiType] = useState("Slide");
+  const [newWikiType,  setNewWikiType]  = useState("Slide");
 
+  // ── Mount + Auth + URL error detection ────────────────────────────────────
   useEffect(() => {
     setIsMounted(true);
-    
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search);
-      const error = urlParams.get('error_description') || urlParams.get('error');
-      const customError = urlParams.get('auth_error'); // サーバーからの詳細な文句
-      
-      if (error || customError) {
-        console.error("=== [DEBUG] URLからエラーを検知しました ===");
-        console.error("Error:", error);
-        console.error("Details:", customError);
-        setErrorMessage(`【認証失敗】 ${error || ''} - 詳細: ${customError || 'なし'}`);
-        // 履歴からエラーURLを消す
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
+
+    // Detect OAuth error forwarded via query params from callback route
+    const urlParams = new URLSearchParams(window.location.search);
+    const error       = urlParams.get("error_description") || urlParams.get("error");
+    const customError = urlParams.get("auth_error");
+    if (error || customError) {
+      setErrorMessage(`【認証失敗】 ${error ?? ""} — 詳細: ${customError ?? "なし"}`);
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
-    
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) console.error("[DEBUG] セッション取得エラー:", error);
-      setSession(session);
+
+    // FIX: use getUser() instead of getSession() — getSession() can return
+    // stale data from localStorage without re-validating with the server.
+    // getUser() always validates the JWT with Supabase and is the recommended
+    // approach for determining if a user is actually authenticated.
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (error) {
+        console.error("[DEBUG] ユーザー取得エラー:", error);
+        setSession(null);
+        return;
+      }
+      // Sync session state via getSession only after confirming user is valid
+      if (user) {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          setSession(session);
+        });
+      } else {
+        setSession(null);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -55,50 +92,37 @@ export default function AppShellV0() {
       setSession(session);
     });
 
-    try {
-      const savedSchedules = localStorage.getItem("club_schedules");
-      const savedInventory = localStorage.getItem("club_inventory");
-      const savedWikis = localStorage.getItem("club_wikis");
-
-      if (savedSchedules) setSchedules(JSON.parse(savedSchedules));
-      if (savedInventory) setInventory(JSON.parse(savedInventory));
-      else setInventory([{ id: 1, name: "一眼レフカメラ", stock: 1, total: 1, image: "📷" }]);
-      if (savedWikis) setWikis(JSON.parse(savedWikis));
-    } catch (e) {
-      console.error(e);
-    }
+    // Load persisted data
+    setSchedules(loadFromStorage<Schedule[]>("club_schedules", []));
+    setInventory(loadFromStorage<InventoryItem[]>("club_inventory", DEFAULT_INVENTORY));
+    setWikis(loadFromStorage<Wiki[]>("club_wikis", []));
 
     return () => subscription.unsubscribe();
   }, []);
 
+  // ── Persist to localStorage ───────────────────────────────────────────────
   useEffect(() => {
-    if (isMounted) {
-      localStorage.setItem("club_schedules", JSON.stringify(schedules));
-      localStorage.setItem("club_inventory", JSON.stringify(inventory));
-      localStorage.setItem("club_wikis", JSON.stringify(wikis));
-    }
+    if (!isMounted) return;
+    localStorage.setItem("club_schedules", JSON.stringify(schedules));
+    localStorage.setItem("club_inventory", JSON.stringify(inventory));
+    localStorage.setItem("club_wikis",     JSON.stringify(wikis));
   }, [schedules, inventory, wikis, isMounted]);
 
+  // ── Auth handlers ─────────────────────────────────────────────────────────
   const handleLogin = async () => {
     setErrorMessage(null);
-    console.log("=== [DEBUG] ログイン処理開始 ===");
+    setAuthLoading(true);
     const redirectUrl = `${window.location.origin}/auth/callback`;
-    console.log("[DEBUG] 指定した戻り先URL:", redirectUrl);
-    
     try {
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'discord',
-        options: {
-          redirectTo: redirectUrl
-        }
+        provider: "discord",
+        options: { redirectTo: redirectUrl },
       });
-      if (error) {
-        console.error("[DEBUG] Supabase signInWithOAuth エラー:", error);
-        throw error;
-      }
-      console.log("[DEBUG] Discordへリダイレクトします...");
+      if (error) throw error;
+      // Note: page will redirect to Discord, so loading state persists intentionally
     } catch (error: any) {
       setErrorMessage(`ログイン開始エラー: ${error.message}`);
+      setAuthLoading(false);
     }
   };
 
@@ -107,221 +131,346 @@ export default function AppShellV0() {
     if (error) setErrorMessage(`ログアウトエラー: ${error.message}`);
   };
 
-  const handleAddSchedule = () => {
-    if (!newScheduleTitle || !newScheduleDate) return;
-    setSchedules([...schedules, { id: Date.now(), title: newScheduleTitle, date: newScheduleDate }]);
-    setNewScheduleTitle(""); setNewScheduleDate("");
-  };
+  // ── Data handlers ─────────────────────────────────────────────────────────
+  const handleAddSchedule = useCallback(() => {
+    if (!newScheduleTitle.trim() || !newScheduleDate) return;
+    setSchedules(prev => [...prev, { id: Date.now(), title: newScheduleTitle.trim(), date: newScheduleDate }]);
+    setNewScheduleTitle("");
+    setNewScheduleDate("");
+  }, [newScheduleTitle, newScheduleDate]);
 
-  const handleAddInventory = () => {
-    if (!newInvName || !newInvTotal) return;
+  const handleAddInventory = useCallback(() => {
+    if (!newInvName.trim() || !newInvTotal) return;
     const totalNum = parseInt(newInvTotal, 10);
-    setInventory([...inventory, { id: Date.now(), name: newInvName, stock: totalNum, total: totalNum, image: newInvEmoji }]);
-    setNewInvName(""); setNewInvTotal("");
-  };
+    if (isNaN(totalNum) || totalNum < 1) return;
+    setInventory(prev => [...prev, { id: Date.now(), name: newInvName.trim(), stock: totalNum, total: totalNum, image: newInvEmoji }]);
+    setNewInvName("");
+    setNewInvTotal("");
+  }, [newInvName, newInvTotal, newInvEmoji]);
 
-  const handleAddWiki = () => {
-    if (!newWikiTitle) return;
-    const today = new Date().toISOString().split('T')[0];
-    setWikis([...wikis, { id: Date.now(), title: newWikiTitle, date: today, type: newWikiType }]);
+  const handleAddWiki = useCallback(() => {
+    if (!newWikiTitle.trim()) return;
+    const today = new Date().toISOString().split("T")[0];
+    setWikis(prev => [...prev, { id: Date.now(), title: newWikiTitle.trim(), date: today, type: newWikiType }]);
     setNewWikiTitle("");
-  };
+  }, [newWikiTitle, newWikiType]);
 
-  const deleteItem = (setter: any, data: any[], id: number) => {
-    setter(data.filter((item: any) => item.id !== id));
-  };
+  // FIX: typed deleteItem — avoids using `any` for setter and data
+  const deleteItem = useCallback(<T extends { id: number }>(
+    setter: React.Dispatch<React.SetStateAction<T[]>>,
+    id: number
+  ) => {
+    setter(prev => prev.filter(item => item.id !== id));
+  }, []);
 
-  if (!isMounted) return null;
+  // ── Loading state (session not yet determined) ────────────────────────────
+  if (!isMounted || session === undefined) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <Loader2 size={28} className="animate-spin text-blue-500" />
+      </div>
+    );
+  }
 
+  // ── Login screen ──────────────────────────────────────────────────────────
   if (!session) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 font-sans">
-        <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm text-center relative overflow-hidden">
+      <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6 font-sans">
+        <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm text-center border border-gray-100">
           {errorMessage && (
-            <div className="absolute top-0 left-0 w-full bg-red-100 text-red-700 p-3 text-xs font-bold flex items-start gap-2 text-left z-50">
-              <ShieldAlert size={16} className="shrink-0 mt-0.5" />
+            <div className="mb-5 bg-red-50 text-red-700 p-3 rounded-xl text-xs font-medium flex items-start gap-2 text-left border border-red-100">
+              <ShieldAlert size={15} className="shrink-0 mt-0.5" />
               <span className="break-all">{errorMessage}</span>
             </div>
           )}
-          <div className={`w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-md ${errorMessage ? 'mt-10' : ''}`}>
-            <span className="text-2xl font-bold">Aero</span>
+          <div className="w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-blue-200">
+            <span className="text-xl font-extrabold tracking-tight">AS</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">AeroSync</h1>
-          <p className="text-sm text-gray-500 mb-8">課外活動をスマートに同期</p>
-          <button onClick={handleLogin} className="w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors duration-200 shadow-sm">
-            Discordでログイン
+          <h1 className="text-2xl font-extrabold text-gray-900 mb-1 tracking-tight">AeroSync</h1>
+          <p className="text-sm text-gray-400 mb-8">課外活動をスマートに同期</p>
+          <button
+            onClick={handleLogin}
+            disabled={authLoading}
+            className="w-full bg-[#5865F2] hover:bg-[#4752C4] disabled:opacity-60 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2.5 transition-all duration-200 shadow-md shadow-indigo-200"
+          >
+            {authLoading
+              ? <><Loader2 size={18} className="animate-spin" /> 接続中...</>
+              : <><DiscordIcon /> Discordでログイン</>
+            }
           </button>
         </div>
       </div>
     );
   }
 
-  const userProfile = session.user.user_metadata;
-
-  const renderContent = () => {
-    switch (activeTab) {
-      case "schedule":
-        return (
-          <div className="p-4 space-y-4">
-            <h2 className="text-xl font-bold text-gray-800">スケジュール & 進捗</h2>
-            {isAdmin && (
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-2">
-                <p className="text-xs font-bold text-blue-600">予定を追加 (管理者のみ)</p>
-                <input type="date" value={newScheduleDate} onChange={e => setNewScheduleDate(e.target.value)} className="border rounded-lg p-2 text-sm" />
-                <input type="text" placeholder="予定のタイトル" value={newScheduleTitle} onChange={e => setNewScheduleTitle(e.target.value)} className="border rounded-lg p-2 text-sm" />
-                <button onClick={handleAddSchedule} className="bg-blue-600 text-white rounded-lg p-2 text-sm font-bold flex justify-center items-center gap-1"><Plus size={16} /> 追加</button>
-              </div>
-            )}
-            <div className="space-y-2">
-              {schedules.map(item => (
-                <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
-                  <div>
-                    <p className="text-xs text-blue-600 font-bold">{item.date}</p>
-                    <p className="text-sm font-medium text-gray-800">{item.title}</p>
-                  </div>
-                  {isAdmin && <button onClick={() => deleteItem(setSchedules, schedules, item.id)} className="text-red-400"><Trash2 size={18} /></button>}
-                </div>
-              ))}
-              {schedules.length === 0 && <p className="text-sm text-gray-400 text-center py-4">予定がありません</p>}
-            </div>
-          </div>
-        );
-
-      case "inventory":
-        return (
-          <div className="p-4 space-y-4">
-            <h2 className="text-xl font-bold text-gray-800">在庫・設備管理</h2>
-            {isAdmin && (
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-2">
-                <p className="text-xs font-bold text-blue-600">機材を追加 (管理者のみ)</p>
-                <div className="flex gap-2">
-                  <input type="text" placeholder="📷" value={newInvEmoji} onChange={e => setNewInvEmoji(e.target.value)} className="border rounded-lg p-2 text-sm w-16 text-center" />
-                  <input type="text" placeholder="機材名" value={newInvName} onChange={e => setNewInvName(e.target.value)} className="border rounded-lg p-2 text-sm flex-1" />
-                </div>
-                <input type="number" placeholder="総数" value={newInvTotal} onChange={e => setNewInvTotal(e.target.value)} className="border rounded-lg p-2 text-sm" />
-                <button onClick={handleAddInventory} className="bg-blue-600 text-white rounded-lg p-2 text-sm font-bold flex justify-center items-center gap-1"><Plus size={16} /> 追加</button>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-3">
-              {inventory.map(item => (
-                <div key={item.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center text-center relative">
-                  {isAdmin && <button onClick={() => deleteItem(setInventory, inventory, item.id)} className="absolute top-2 right-2 text-gray-300 hover:text-red-400"><Trash2 size={14} /></button>}
-                  <div className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center text-3xl mb-2">{item.image}</div>
-                  <p className="text-xs font-bold text-gray-800 line-clamp-2 h-8">{item.name}</p>
-                  <div className="mt-2 text-[10px] font-bold px-2 py-1 rounded-full bg-green-100 text-green-700 w-full">残: {item.stock} / {item.total}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case "wiki":
-        return (
-          <div className="p-4 space-y-4">
-            <h2 className="text-xl font-bold text-gray-800">マニュアル & Wiki</h2>
-            {isAdmin && (
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-2">
-                <p className="text-xs font-bold text-blue-600">Wikiを追加 (管理者のみ)</p>
-                <div className="flex gap-2">
-                  <select value={newWikiType} onChange={e => setNewWikiType(e.target.value)} className="border rounded-lg p-2 text-sm bg-white">
-                    <option value="Slide">Slide</option>
-                    <option value="Doc">Doc</option>
-                  </select>
-                  <input type="text" placeholder="タイトル" value={newWikiTitle} onChange={e => setNewWikiTitle(e.target.value)} className="border rounded-lg p-2 text-sm flex-1" />
-                </div>
-                <button onClick={handleAddWiki} className="bg-blue-600 text-white rounded-lg p-2 text-sm font-bold flex justify-center items-center gap-1"><Plus size={16} /> 追加</button>
-              </div>
-            )}
-            <div className="space-y-2">
-              {wikis.map(doc => (
-                <div key={doc.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-xs text-blue-600 font-bold mb-1">{doc.type} • {doc.date}</span>
-                    <span className="text-sm font-medium text-gray-800">{doc.title}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isAdmin && <button onClick={() => deleteItem(setWikis, wikis, doc.id)} className="text-red-400"><Trash2 size={16} /></button>}
-                    <ChevronRight size={20} className="text-gray-400" />
-                  </div>
-                </div>
-              ))}
-              {wikis.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Wikiがありません</p>}
-            </div>
-          </div>
-        );
-
-      case "settings":
-        return (
-          <div className="p-4 space-y-6">
-            <h2 className="text-xl font-bold text-gray-800">設定・アカウント</h2>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-                {userProfile?.avatar_url ? (
-                  <img src={userProfile.avatar_url} alt="Avatar" className="w-10 h-10 rounded-full shadow-sm" />
-                ) : (
-                  <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
-                    {userProfile?.full_name?.charAt(0) || "U"}
-                  </div>
-                )}
-                <div>
-                  <p className="font-bold text-gray-800">{userProfile?.full_name || "ユーザー"}</p>
-                  <p className="text-xs text-gray-500">Discord連携済み</p>
-                </div>
-              </div>
-              <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-yellow-50">
-                <div className="flex items-center gap-2">
-                  <ShieldAlert size={18} className="text-yellow-600" />
-                  <span className="text-sm font-bold text-yellow-800">管理者モード</span>
-                </div>
-                <input type="checkbox" checked={isAdmin} onChange={e => setIsAdmin(e.target.checked)} className="w-5 h-5 accent-yellow-600" />
-              </div>
-              <button onClick={handleLogout} className="w-full p-4 flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors text-sm font-bold">
-                <LogOut size={18} /> ログアウト
-              </button>
-            </div>
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
+  // ── Authenticated app ─────────────────────────────────────────────────────
+  const userProfile = session.user?.user_metadata ?? {};
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 font-sans">
-      <header className="bg-white text-gray-800 p-4 shadow-sm flex items-center justify-between z-10 relative">
-        <h1 className="text-lg font-extrabold tracking-tight"><span className="text-blue-600">Aero</span>Sync</h1>
-        {isAdmin && <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-1 rounded-full">Admin</span>}
-      </header>
-      <main className="flex-1 overflow-y-auto pb-24 relative">
-        {/* メイン画面側のエラー表示（念のため） */}
-        {errorMessage && (
-           <div className="bg-red-100 text-red-700 p-3 text-xs font-bold flex items-start gap-2 m-4 rounded-lg">
-             <ShieldAlert size={16} className="shrink-0 mt-0.5" />
-             <span className="break-all">{errorMessage}</span>
-           </div>
+      {/* Header */}
+      <header className="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+        <h1 className="text-lg font-extrabold tracking-tight">
+          <span className="text-blue-600">Aero</span>Sync
+        </h1>
+        {isAdmin && (
+          <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2.5 py-1 rounded-full border border-blue-100">
+            Admin
+          </span>
         )}
-        {renderContent()}
+      </header>
+
+      {/* Error banner */}
+      {errorMessage && (
+        <div className="bg-red-50 text-red-700 px-4 py-2.5 text-xs font-medium flex items-start gap-2 border-b border-red-100">
+          <ShieldAlert size={14} className="shrink-0 mt-0.5" />
+          <span className="break-all">{errorMessage}</span>
+        </div>
+      )}
+
+      {/* Main content */}
+      <main className="flex-1 overflow-y-auto pb-24">
+        {renderContent({ activeTab, isAdmin, schedules, inventory, wikis,
+          newScheduleTitle, setNewScheduleTitle, newScheduleDate, setNewScheduleDate,
+          newInvName, setNewInvName, newInvTotal, setNewInvTotal, newInvEmoji, setNewInvEmoji,
+          newWikiTitle, setNewWikiTitle, newWikiType, setNewWikiType,
+          handleAddSchedule, handleAddInventory, handleAddWiki, deleteItem,
+          userProfile, isAdmin: isAdmin, setIsAdmin, handleLogout,
+        })}
       </main>
-      <nav className="fixed bottom-0 w-full bg-white border-t border-gray-200 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.04)] z-20">
-        <div className="flex justify-around items-center h-16">
-          <button onClick={() => setActiveTab("schedule")} className={`flex flex-col items-center justify-center w-full h-full ${activeTab === "schedule" ? "text-blue-600" : "text-gray-400"}`}>
-            <Calendar size={22} />
-            <span className="text-[10px] mt-1 font-bold">予定</span>
-          </button>
-          <button onClick={() => setActiveTab("inventory")} className={`flex flex-col items-center justify-center w-full h-full ${activeTab === "inventory" ? "text-blue-600" : "text-gray-400"}`}>
-            <Package size={22} />
-            <span className="text-[10px] mt-1 font-bold">在庫</span>
-          </button>
-          <button onClick={() => setActiveTab("wiki")} className={`flex flex-col items-center justify-center w-full h-full ${activeTab === "wiki" ? "text-blue-600" : "text-gray-400"}`}>
-            <BookOpen size={22} />
-            <span className="text-[10px] mt-1 font-bold">Wiki</span>
-          </button>
-          <button onClick={() => setActiveTab("settings")} className={`flex flex-col items-center justify-center w-full h-full ${activeTab === "settings" ? "text-blue-600" : "text-gray-400"}`}>
-            <Settings size={22} />
-            <span className="text-[10px] mt-1 font-bold">設定</span>
-          </button>
+
+      {/* Bottom nav */}
+      <nav className="fixed bottom-0 w-full bg-white border-t border-gray-100 pb-safe z-20">
+        <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
+          {([ 
+            { id: "schedule",  Icon: Calendar,  label: "予定"  },
+            { id: "inventory", Icon: Package,   label: "在庫"  },
+            { id: "wiki",      Icon: BookOpen,  label: "Wiki"  },
+            { id: "settings",  Icon: Settings,  label: "設定"  },
+          ] as const).map(({ id, Icon, label }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-colors
+                ${activeTab === id ? "text-blue-600" : "text-gray-400 hover:text-gray-600"}`}
+            >
+              <Icon size={22} strokeWidth={activeTab === id ? 2.5 : 1.8} />
+              <span className="text-[10px] font-bold">{label}</span>
+            </button>
+          ))}
         </div>
       </nav>
     </div>
   );
+}
+
+// ─── Discord icon SVG ─────────────────────────────────────────────────────────
+
+function DiscordIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.031.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
+    </svg>
+  );
+}
+
+// ─── Tab content (extracted to keep AppShell readable) ───────────────────────
+
+function AdminForm({ children, label }: { children: React.ReactNode; label: string }) {
+  return (
+    <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl flex flex-col gap-2.5">
+      <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wide">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={`border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 transition ${props.className ?? ""}`}
+    />
+  );
+}
+
+function AddButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl py-2 text-sm font-bold flex justify-center items-center gap-1.5 transition-all"
+    >
+      <Plus size={15} /> {label}
+    </button>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <p className="text-sm text-gray-400 text-center py-8">{text}</p>;
+}
+
+function renderContent(props: any) {
+  const {
+    activeTab, isAdmin, schedules, inventory, wikis,
+    newScheduleTitle, setNewScheduleTitle, newScheduleDate, setNewScheduleDate,
+    newInvName, setNewInvName, newInvTotal, setNewInvTotal, newInvEmoji, setNewInvEmoji,
+    newWikiTitle, setNewWikiTitle, newWikiType, setNewWikiType,
+    handleAddSchedule, handleAddInventory, handleAddWiki, deleteItem,
+    userProfile, setIsAdmin, handleLogout,
+  } = props;
+
+  switch (activeTab) {
+    case "schedule":
+      return (
+        <div className="p-4 space-y-4">
+          <h2 className="text-xl font-bold text-gray-900">スケジュール</h2>
+          {isAdmin && (
+            <AdminForm label="予定を追加">
+              <Input type="date" value={newScheduleDate} onChange={e => setNewScheduleDate(e.target.value)} />
+              <Input type="text" placeholder="予定のタイトル" value={newScheduleTitle} onChange={e => setNewScheduleTitle(e.target.value)} />
+              <AddButton onClick={handleAddSchedule} label="追加" />
+            </AdminForm>
+          )}
+          <div className="space-y-2">
+            {schedules.length === 0
+              ? <EmptyState text="予定がありません" />
+              : schedules.map((item: Schedule) => (
+                <div key={item.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex justify-between items-center shadow-sm">
+                  <div>
+                    <p className="text-[11px] text-blue-500 font-bold mb-0.5">{item.date}</p>
+                    <p className="text-sm font-medium text-gray-800">{item.title}</p>
+                  </div>
+                  {isAdmin && (
+                    <button onClick={() => deleteItem(setSchedules, item.id)} className="text-gray-300 hover:text-red-400 transition-colors p-1">
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      );
+
+    case "inventory":
+      return (
+        <div className="p-4 space-y-4">
+          <h2 className="text-xl font-bold text-gray-900">在庫・設備管理</h2>
+          {isAdmin && (
+            <AdminForm label="機材を追加">
+              <div className="flex gap-2">
+                <Input type="text" placeholder="📷" value={newInvEmoji} onChange={e => setNewInvEmoji(e.target.value)} className="w-14 text-center" />
+                <Input type="text" placeholder="機材名" value={newInvName} onChange={e => setNewInvName(e.target.value)} className="flex-1" />
+              </div>
+              <Input type="number" placeholder="総数" min={1} value={newInvTotal} onChange={e => setNewInvTotal(e.target.value)} />
+              <AddButton onClick={handleAddInventory} label="追加" />
+            </AdminForm>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            {inventory.map((item: InventoryItem) => (
+              <div key={item.id} className="bg-white p-3 rounded-2xl border border-gray-100 flex flex-col items-center text-center relative shadow-sm">
+                {isAdmin && (
+                  <button onClick={() => deleteItem(setInventory, item.id)} className="absolute top-2 right-2 text-gray-200 hover:text-red-400 transition-colors">
+                    <Trash2 size={13} />
+                  </button>
+                )}
+                <div className="w-14 h-14 bg-gray-50 rounded-xl flex items-center justify-center text-3xl mb-2">{item.image}</div>
+                <p className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight mb-2">{item.name}</p>
+                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full w-full ${
+                  item.stock === 0 ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"
+                }`}>
+                  残: {item.stock} / {item.total}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+
+    case "wiki":
+      return (
+        <div className="p-4 space-y-4">
+          <h2 className="text-xl font-bold text-gray-900">マニュアル & Wiki</h2>
+          {isAdmin && (
+            <AdminForm label="Wikiを追加">
+              <div className="flex gap-2">
+                <select value={newWikiType} onChange={e => setNewWikiType(e.target.value)}
+                  className="border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+                  <option value="Slide">Slide</option>
+                  <option value="Doc">Doc</option>
+                </select>
+                <Input type="text" placeholder="タイトル" value={newWikiTitle} onChange={e => setNewWikiTitle(e.target.value)} className="flex-1" />
+              </div>
+              <AddButton onClick={handleAddWiki} label="追加" />
+            </AdminForm>
+          )}
+          <div className="space-y-2">
+            {wikis.length === 0
+              ? <EmptyState text="Wikiがありません" />
+              : wikis.map((doc: Wiki) => (
+                <div key={doc.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex items-center justify-between shadow-sm">
+                  <div>
+                    <span className="text-[11px] text-blue-500 font-bold">{doc.type} · {doc.date}</span>
+                    <p className="text-sm font-medium text-gray-800 mt-0.5">{doc.title}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isAdmin && (
+                      <button onClick={() => deleteItem(setWikis, doc.id)} className="text-gray-300 hover:text-red-400 transition-colors p-1">
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                    <ChevronRight size={18} className="text-gray-300" />
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      );
+
+    case "settings":
+      return (
+        <div className="p-4 space-y-4">
+          <h2 className="text-xl font-bold text-gray-900">設定・アカウント</h2>
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm divide-y divide-gray-100">
+            {/* Profile row */}
+            <div className="p-4 flex items-center gap-3">
+              {userProfile?.avatar_url ? (
+                <img src={userProfile.avatar_url} alt="Avatar" className="w-11 h-11 rounded-full ring-2 ring-blue-100" />
+              ) : (
+                <div className="w-11 h-11 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-base">
+                  {(userProfile?.full_name as string)?.charAt(0) ?? "U"}
+                </div>
+              )}
+              <div>
+                <p className="font-bold text-gray-900 text-sm">{userProfile?.full_name ?? "ユーザー"}</p>
+                <p className="text-xs text-gray-400 mt-0.5">Discord 連携済み</p>
+              </div>
+            </div>
+            {/* Admin toggle */}
+            <div className="p-4 flex items-center justify-between bg-amber-50">
+              <div className="flex items-center gap-2">
+                <ShieldAlert size={16} className="text-amber-500" />
+                <span className="text-sm font-bold text-amber-800">管理者モード</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={isAdmin} onChange={e => setIsAdmin(e.target.checked)} className="sr-only peer" />
+                <div className="w-10 h-6 bg-gray-200 peer-checked:bg-amber-500 rounded-full transition-colors" />
+                <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4" />
+              </label>
+            </div>
+            {/* Logout */}
+            <button
+              onClick={handleLogout}
+              className="w-full p-4 flex items-center gap-3 text-red-500 hover:bg-red-50 transition-colors text-sm font-bold"
+            >
+              <LogOut size={16} /> ログアウト
+            </button>
+          </div>
+        </div>
+      );
+
+    default:
+      return null;
+  }
 }
