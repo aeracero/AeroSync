@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase"; // 最新のCookie対応版クライアント
+import { supabase } from "../lib/supabase";
 import { 
   Calendar, Package, BookOpen, Settings, 
   LogOut, Plus, ShieldAlert, ChevronRight, Trash2
@@ -236,6 +236,7 @@ export default function AppShellV0() {
                   </div>
                 </div>
               ))}
+              {wikis.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Wikiがありません</p>}
             </div>
           </div>
         );
