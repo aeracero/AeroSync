@@ -12,7 +12,7 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
           // Write cookies onto both the request (for server components) and
           // the response (for the browser). This is what keeps PKCE alive.
           cookiesToSet.forEach(({ name, value }) =>
