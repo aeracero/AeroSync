@@ -38,7 +38,7 @@ export async function GET(request: Request) {
               console.log(`[DEBUG] クッキー一覧読み込み: ${all.map(c => c.name).join(', ') || 'なし'}`)
               return all
             },
-            setAll(cookiesToSet) {
+            setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
               try {
                 cookiesToSet.forEach(({ name, value, options }) => {
                   console.log(`[DEBUG] クッキー書き込み (${name})`)
