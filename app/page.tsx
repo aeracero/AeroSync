@@ -235,7 +235,7 @@ export default function AppShell() {
           newInvName, setNewInvName, newInvTotal, setNewInvTotal, newInvEmoji, setNewInvEmoji,
           newWikiTitle, setNewWikiTitle, newWikiType, setNewWikiType,
           handleAddSchedule, handleAddInventory, handleAddWiki, deleteItem,
-          userProfile, isAdmin: isAdmin, setIsAdmin, handleLogout,
+          userProfile, setIsAdmin, handleLogout,
         })}
       </main>
 
