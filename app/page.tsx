@@ -36,7 +36,7 @@ async function reqNotif(): Promise<boolean> { if (!("Notification" in window)) r
 // ─── Animation CSS ────────────────────────────────────────────────────────────
 const fadeIn = "animate-[fadeIn_0.3s_ease-out]";
 const slideUp = "animate-[slideUp_0.35s_cubic-bezier(0.34,1.56,0.64,1)]";
-const pulse = "animate-[pulse_2s_ease-in-out_infinite]";
+const pulse = "animate-pulse";
 
 // ─── Micro components ─────────────────────────────────────────────────────────
 function DiscordIcon() {
@@ -214,15 +214,24 @@ export default function AppShell() {
 
     // Text selection tooltip
     function handleSelectionChange() {
-      const sel = window.getSelection();
-      const text = sel?.toString().trim() ?? "";
-      if (text.length > 3 && text.length < 500 && sel && sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        setSelectionTooltip({ text, x: rect.left + rect.width / 2, y: rect.top - 10 });
-      } else {
-        setSelectionTooltip(null);
-      }
+      // Small delay so the selection rect is finalised
+      setTimeout(() => {
+        const sel = window.getSelection();
+        const text = sel?.toString().trim() ?? "";
+        const activeEl = document.activeElement;
+        const isInput = activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement;
+        if (!isInput && text.length > 3 && text.length < 500 && sel && sel.rangeCount > 0) {
+          try {
+            const range = sel.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            if (rect.width > 0) {
+              setSelectionTooltip({ text, x: rect.left + rect.width / 2, y: rect.top });
+            }
+          } catch { setSelectionTooltip(null); }
+        } else {
+          setSelectionTooltip(null);
+        }
+      }, 50);
     }
     document.addEventListener("selectionchange", handleSelectionChange);
     const urlParams = new URLSearchParams(window.location.search);
@@ -247,7 +256,7 @@ export default function AppShell() {
     setNotifEnabled(typeof Notification!=="undefined"&&Notification.permission==="granted");
     setChatMessages(loadLS("as_chat",[]));
 
-    return ()=>subscription.unsubscribe();
+    return () => { subscription.unsubscribe(); document.removeEventListener("selectionchange", handleSelectionChange); };
   }, []);
 
   useEffect(()=>{
@@ -267,14 +276,7 @@ export default function AppShell() {
   useEffect(()=>{ if(searchOpen) setTimeout(()=>searchRef.current?.focus(),100); },[searchOpen]);
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[chatMessages]);
 
-  // Auto-send when chat opened from text selection (input already filled)
   const pendingSendRef = useRef(false);
-  useEffect(()=>{
-    if(chatOpen && chatInput && pendingSendRef.current){
-      pendingSendRef.current = false;
-      sendChat();
-    }
-  },[chatOpen, chatInput]);
 
   // Check user availability for selected date
   useEffect(()=>{
@@ -349,6 +351,15 @@ export default function AppShell() {
     } catch { setChatMessages(prev=>[...prev,{role:"assistant",content:"接続エラーが発生しました",ts:Date.now()}]); }
     finally { setChatLoading(false); }
   };
+
+  // Auto-send when opened from text selection
+  useEffect(()=>{
+    if(chatOpen && pendingSendRef.current && chatInput.trim()){
+      pendingSendRef.current = false;
+      sendChat();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[chatOpen]);
 
   // ── Notifications ─────────────────────────────────────────────────────────
   const toggleNotif = async()=>{ if(notifEnabled){setNotifEnabled(false);return;} const g=await reqNotif(); setNotifEnabled(g); if(g) new Notification("AeroSync",{body:"通知が有効になりました！",icon:"/icons/icon-192.png"}); };
