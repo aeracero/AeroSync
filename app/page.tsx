@@ -11,11 +11,11 @@ import {
   MapPin, CheckSquare, TrendingUp, Zap, Shield, Crown,
   Palette, Wand2, ChevronDown, RotateCcw, Moon, Sun, Globe,
   Volume2, VolumeX, Vibrate, Eye as EyeIcon, EyeOff as EyeOffIcon,
-  Copy, Download, Upload, RefreshCw, HelpCircle, Star, Flame
+  Copy, Download, Upload, RefreshCw, HelpCircle, Star, Flame, Home
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Tab = "schedule"|"inventory"|"wiki"|"settings";
+type Tab = "home"|"schedule"|"inventory"|"wiki"|"settings";
 type AuthMode = "login"|"signup"|"check_email";
 type SettingsTab = "profile"|"roles"|"appearance"|"notifications"|"privacy"|"data"|"about";
 
@@ -430,7 +430,7 @@ function RoleEditor({ role, onSave, onClose, onDelete }: { role:Role; onSave:(r:
 export default function AppShell() {
   const [isMounted, setIsMounted] = useState(false);
   const [session, setSession] = useState<any>(undefined);
-  const [activeTab, setActiveTab] = useState<Tab>("schedule");
+  const [activeTab, setActiveTab] = useState<Tab>("home");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("profile");
   const [errorMessage, setErrorMessage] = useState<string|null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -448,6 +448,9 @@ export default function AppShell() {
   const [memberRoles, setMemberRoles] = useState<MemberRole[]>([]);
   const [editingRole, setEditingRole] = useState<Role|null>(null);
   const [showNewRoleForm, setShowNewRoleForm] = useState(false);
+  const [claimOwnerCode, setClaimOwnerCode] = useState("");
+  const [claimOwnerError, setClaimOwnerError] = useState("");
+  const [showClaimOwner, setShowClaimOwner] = useState(false);
   const [assignEmail, setAssignEmail] = useState("");
   const [assignRoleId, setAssignRoleId] = useState("");
 
@@ -502,6 +505,7 @@ export default function AppShell() {
   const perms = myRoleData?.permissions ?? DEFAULT_PERMISSIONS;
   const isAdmin = perms.manageTasks || perms.manageInventory || perms.manageWiki;
   const canManageRoles = perms.manageRoles || perms.manageMembers;
+  const noOwner = !memberRoles.some(m=>m.roleId==="owner");
 
   useEffect(() => {
     setIsMounted(true);
@@ -722,7 +726,251 @@ export default function AppShell() {
   const selectedAvail = availability.filter(a=>a.date===selectedDate);
 
   const renderContent = () => {
-    // ── Schedule ──────────────────────────────────────────────────────────
+    // ── Home ──────────────────────────────────────────────────────────────
+    if(activeTab==="home") {
+      const hour = new Date().getHours();
+      const greeting = hour < 5 ? "おやすみなさい" : hour < 12 ? "おはようございます" : hour < 17 ? "こんにちは" : hour < 21 ? "こんばんは" : "おやすみなさい";
+      const todayStr = new Date().toISOString().split("T")[0];
+      const todayTaskList = tasks.filter(t => t.date === todayStr);
+      const upcomingTasks = tasks.filter(t => t.date > todayStr && !t.done).slice(0, 3);
+      const myTasks = tasks.filter(t => t.assignees.includes(currentUserEmail) && !t.done);
+      const lowStockItems = inventory.filter(i => i.stock < i.total * 0.3);
+      const recentWikis = [...wikis].sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 3);
+      const myAvailToday = availability.find(a => a.userId === currentUserEmail && a.date === todayStr);
+      const completionRate = tasks.length > 0 ? Math.round((tasks.filter(t=>t.done).length / tasks.length) * 100) : 0;
+
+      return (
+        <div className={`${fadeIn}`} style={{fontSize: appearance.fontSize === "sm" ? "13px" : appearance.fontSize === "lg" ? "17px" : "15px"}}>
+          {/* Hero greeting section */}
+          <div className="relative overflow-hidden px-5 pt-8 pb-6" style={{background:`linear-gradient(160deg, ${appearance.accentColor}18 0%, ${appearance.accentColor}05 60%, transparent 100%)`}}>
+            {/* Decorative blobs */}
+            <div className="absolute top-0 right-0 w-48 h-48 rounded-full opacity-10 pointer-events-none" style={{background:appearance.accentColor, transform:"translate(30%,-30%)"}}/>
+            <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full opacity-5 pointer-events-none" style={{background:appearance.accentColor, transform:"translate(-30%,30%)"}}/>
+
+            <div className="relative flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold mb-1" style={{color:appearance.accentColor, opacity:0.7}}>{greeting}</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <VisualEffectWrapper effect={myVisualEffect}>
+                    <h1 className="text-2xl font-black text-gray-900 tracking-tight truncate">
+                      {(userProfile?.full_name ?? session.user?.email ?? "ユーザー").split("@")[0]}
+                    </h1>
+                  </VisualEffectWrapper>
+                </div>
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-lg">{myRoleData?.icon}</span>
+                  <VisualEffectWrapper effect={myRoleData?.visualEffect||"none"}>
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:myRoleData?.color+"22",color:myRoleData?.color,border:`1px solid ${myRoleData?.color}33`}}>{myRoleData?.name}</span>
+                  </VisualEffectWrapper>
+                  {myAvailToday && (
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:AVAIL_COLORS[myAvailToday.status]+"22",color:AVAIL_COLORS[myAvailToday.status]}}>
+                      {AVAIL_LABELS[myAvailToday.status]}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="shrink-0">
+                {userProfile?.avatar_url
+                  ? <img src={userProfile.avatar_url} alt="avatar" className="w-16 h-16 rounded-2xl ring-2 shadow-lg" style={{ringColor:appearance.accentColor+"44"}}/>
+                  : <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-black text-white shadow-lg" style={{background:`linear-gradient(135deg, ${appearance.accentColor}, ${appearance.accentColor}bb)`}}>
+                      {(userProfile?.full_name ?? session.user?.email ?? "U").charAt(0).toUpperCase()}
+                    </div>
+                }
+              </div>
+            </div>
+
+            {/* Progress ring + today summary */}
+            <div className="mt-5 flex items-center gap-3">
+              <div className="relative w-14 h-14 shrink-0">
+                <svg className="w-14 h-14 -rotate-90" viewBox="0 0 56 56">
+                  <circle cx="28" cy="28" r="22" fill="none" stroke="#e5e7eb" strokeWidth="5"/>
+                  <circle cx="28" cy="28" r="22" fill="none" stroke={appearance.accentColor} strokeWidth="5"
+                    strokeDasharray={`${2*Math.PI*22}`} strokeDashoffset={`${2*Math.PI*22*(1-completionRate/100)}`}
+                    strokeLinecap="round" style={{transition:"stroke-dashoffset 1s ease"}}/>
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-xs font-black text-gray-800">{completionRate}%</span>
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-black text-gray-900">タスク達成率</p>
+                <p className="text-xs text-gray-500">{tasks.filter(t=>t.done).length} / {tasks.length} 完了</p>
+              </div>
+              <div className="ml-auto text-right">
+                <p className="text-xs text-gray-400">{new Date().toLocaleDateString("ja-JP",{month:"long",day:"numeric",weekday:"short"})}</p>
+                <p className="text-xs font-bold" style={{color:appearance.accentColor}}>{todayTaskList.length}件の予定</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-4 space-y-5 pb-6">
+            {/* Quick stat cards */}
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                {n:tasks.filter(t=>!t.done).length, label:"残タスク", color:"#3b82f6", icon:"📋"},
+                {n:myTasks.length, label:"自分の担当", color:appearance.accentColor, icon:"🎯"},
+                {n:lowStockItems.length, label:"在庫不足", color:"#ef4444", icon:"⚠️"},
+                {n:wikis.length, label:"Wiki", color:"#8b5cf6", icon:"📖"},
+              ].map(s=>(
+                <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-2.5 text-center" style={{borderTopWidth:2,borderTopColor:s.color}}>
+                  <div className="text-lg mb-0.5">{s.icon}</div>
+                  <p className="text-lg font-black text-gray-900">{s.n}</p>
+                  <p className="text-[9px] text-gray-400 font-bold leading-tight">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Today's tasks */}
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5"><span>📅</span> 今日の予定</h2>
+                <button onClick={()=>setActiveTab("schedule")} className="text-xs font-bold transition-colors" style={{color:appearance.accentColor}}>すべて見る →</button>
+              </div>
+              {todayTaskList.length === 0
+                ? <div className="bg-white rounded-2xl border border-gray-100 p-4 text-center">
+                    <p className="text-2xl mb-1">🎉</p>
+                    <p className="text-sm font-bold text-gray-700">今日の予定はありません</p>
+                    <p className="text-xs text-gray-400 mt-0.5">ゆっくり休んでください</p>
+                  </div>
+                : <div className="space-y-2">
+                    {todayTaskList.slice(0, 4).map((t, i) => (
+                      <div key={t.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3 px-3.5 py-3 transition-all active:scale-[0.99]" style={{borderLeftWidth:3,borderLeftColor:t.color, animationDelay:`${i*0.05}s`}}>
+                        <button onClick={()=>setTasks(p=>p.map(x=>x.id===t.id?{...x,done:!x.done}:x))}
+                          className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all" style={t.done?{background:t.color,borderColor:t.color}:{borderColor:t.color+"88"}}>
+                          {t.done&&<Check size={10} className="text-white"/>}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-bold truncate ${t.done?"line-through text-gray-400":"text-gray-900"}`}>{t.title}</p>
+                          {t.location&&<p className="text-[10px] text-gray-400 flex items-center gap-0.5 mt-0.5"><MapPin size={9}/>{t.location}</p>}
+                        </div>
+                        <Pill color={t.color}>{t.priority==="high"?"🔥":t.priority==="medium"?"⚡":"🌿"}</Pill>
+                      </div>
+                    ))}
+                    {todayTaskList.length > 4 && <p className="text-xs text-center text-gray-400 pt-1">他 {todayTaskList.length-4} 件</p>}
+                  </div>
+              }
+            </div>
+
+            {/* My tasks */}
+            {myTasks.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5"><span>🎯</span> 自分の担当</h2>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{background:appearance.accentColor}}>{myTasks.length}件</span>
+                </div>
+                <div className="space-y-1.5">
+                  {myTasks.slice(0, 3).map(t=>(
+                    <div key={t.id} onClick={()=>{setSelectedDate(t.date);setActiveTab("schedule");}} className="bg-white rounded-xl border border-gray-100 shadow-sm flex items-center gap-3 px-3 py-2.5 cursor-pointer active:scale-[0.99] transition-all">
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{background:t.color}}/>
+                      <p className="text-xs font-bold text-gray-800 truncate flex-1">{t.title}</p>
+                      <span className="text-[10px] text-gray-400 shrink-0">{t.date}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Upcoming */}
+            {upcomingTasks.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5"><span>🔮</span> 近日の予定</h2>
+                </div>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
+                  {upcomingTasks.map(t=>(
+                    <div key={t.id} onClick={()=>{setSelectedDate(t.date);setActiveTab("schedule");}} className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors active:scale-[0.99]">
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{background:t.color+"22"}}>
+                        <Calendar size={14} style={{color:t.color}}/>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-gray-800 truncate">{t.title}</p>
+                        <p className="text-[10px] text-gray-400">{t.date}</p>
+                      </div>
+                      <ChevronRight size={14} className="text-gray-300 shrink-0"/>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Low stock alert */}
+            {lowStockItems.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5"><span>⚠️</span> 在庫不足</h2>
+                  <button onClick={()=>setActiveTab("inventory")} className="text-xs font-bold" style={{color:appearance.accentColor}}>管理する →</button>
+                </div>
+                <div className="bg-red-50 rounded-2xl border border-red-100 overflow-hidden divide-y divide-red-100">
+                  {lowStockItems.slice(0,3).map(item=>(
+                    <div key={item.id} className="flex items-center gap-3 px-4 py-3">
+                      <span className="text-xl shrink-0">{item.isEmoji?item.image:"📦"}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-gray-800 truncate">{item.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex-1 bg-red-200 rounded-full h-1 overflow-hidden">
+                            <div className="h-full rounded-full bg-red-500" style={{width:`${(item.stock/item.total)*100}%`}}/>
+                          </div>
+                          <span className="text-[10px] font-bold text-red-500 shrink-0">{item.stock}/{item.total}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Recent Wiki */}
+            {recentWikis.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5"><span>📖</span> 最近のWiki</h2>
+                  <button onClick={()=>setActiveTab("wiki")} className="text-xs font-bold" style={{color:appearance.accentColor}}>すべて見る →</button>
+                </div>
+                <div className="space-y-1.5">
+                  {recentWikis.map(w=>(
+                    <button key={w.id} onClick={()=>{setWikis(p=>p.map(x=>x.id===w.id?{...x,views:x.views+1}:x));setActiveWiki({...w,views:w.views+1});setActiveTab("wiki");}}
+                      className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5 text-left flex items-center gap-3 hover:border-blue-200 transition-all active:scale-[0.99]">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{background:appearance.accentColor+"15"}}>
+                        <Hash size={15} style={{color:appearance.accentColor}}/>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-gray-900 truncate">{w.title}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <Pill color={appearance.accentColor}>{w.category}</Pill>
+                          <span className="text-[10px] text-gray-400">👁 {w.views}</span>
+                        </div>
+                      </div>
+                      <ChevronRight size={14} className="text-gray-300 shrink-0"/>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Quick actions */}
+            <div>
+              <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5 mb-2.5"><span>⚡</span> クイックアクション</h2>
+              <div className="grid grid-cols-2 gap-2.5">
+                {[
+                  {label:"タスクを追加", icon:"➕", tab:"schedule" as Tab, action:()=>{setActiveTab("schedule");setShowTaskForm(true);}},
+                  {label:"Wikiを開く", icon:"📖", tab:"wiki" as Tab, action:()=>setActiveTab("wiki")},
+                  {label:"在庫確認", icon:"📦", tab:"inventory" as Tab, action:()=>setActiveTab("inventory")},
+                  {label:"AIに聞く", icon:"✨", tab:"settings" as Tab, action:()=>setChatOpen(true)},
+                ].map(a=>(
+                  <button key={a.label} onClick={a.action}
+                    className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3 text-left hover:shadow-md transition-all active:scale-[0.97]">
+                    <span className="text-xl">{a.icon}</span>
+                    <p className="text-xs font-bold text-gray-800">{a.label}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+        // ── Schedule ──────────────────────────────────────────────────────────
     if(activeTab==="schedule") return (
       <div className={`p-4 space-y-4 ${fadeIn}`}>
         <div className="grid grid-cols-3 gap-2">
@@ -953,6 +1201,46 @@ export default function AppShell() {
             {/* Roles */}
             {settingsTab==="roles"&&(
               <>
+                {/* ── No-owner bootstrap banner ── */}
+                {noOwner&&(
+                  <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl shrink-0">👑</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-black text-amber-800 mb-0.5">オーナーがいません</p>
+                        <p className="text-xs text-amber-700 leading-relaxed mb-3">現在このアプリにはオーナーロールを持つメンバーがいません。あなたがオーナーになるには、セキュリティコードを入力してください。</p>
+                        {!showClaimOwner?(
+                          <button onClick={()=>setShowClaimOwner(true)}
+                            className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all active:scale-95">
+                            <Crown size={13}/> オーナーになる
+                          </button>
+                        ):(
+                          <div className="space-y-2">
+                            <p className="text-xs text-amber-700 font-medium">セキュリティコード: <span className="font-black">AEROSYNC</span></p>
+                            <div className="flex gap-2">
+                              <input
+                                value={claimOwnerCode}
+                                onChange={e=>{setClaimOwnerCode(e.target.value.toUpperCase());setClaimOwnerError("");}}
+                                placeholder="コードを入力..."
+                                className="flex-1 border border-amber-300 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 font-mono tracking-widest uppercase"
+                              />
+                              <button onClick={()=>{
+                                if(claimOwnerCode==="AEROSYNC"){
+                                  setMemberRoles(p=>[...p.filter(m=>m.email!==currentUserEmail),{email:currentUserEmail,roleId:"owner",assignedAt:new Date().toISOString().split("T")[0],assignedBy:"system"}]);
+                                  setShowClaimOwner(false); setClaimOwnerCode("");
+                                } else {
+                                  setClaimOwnerError("コードが正しくありません");
+                                }
+                              }} className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 rounded-xl transition-all active:scale-95">確認</button>
+                            </div>
+                            {claimOwnerError&&<p className="text-xs text-red-500 font-medium">{claimOwnerError}</p>}
+                            <button onClick={()=>{setShowClaimOwner(false);setClaimOwnerCode("");setClaimOwnerError("");}} className="text-xs text-amber-600 font-medium">キャンセル</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-2">
                   {roles.map(role=>(
                     <div key={role.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1160,8 +1448,8 @@ export default function AppShell() {
       {/* Nav */}
       <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-gray-100 z-30" style={{paddingBottom:"env(safe-area-inset-bottom)"}}>
         <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
-          {([{id:"schedule",Icon:Calendar,label:"予定"},{id:"inventory",Icon:Package,label:"在庫"},{id:"wiki",Icon:BookOpen,label:"Wiki"},{id:"settings",Icon:Settings,label:"設定"}] as const).map(({id,Icon,label})=>(
-            <button key={id} onClick={()=>{setActiveTab(id);setActiveWiki(null);}} className="flex flex-col items-center justify-center w-full h-full gap-0.5 transition-all duration-200" style={{color:activeTab===id?appearance.accentColor:"#9ca3af"}}>
+          {([{id:"home",Icon:Home,label:"ホーム"},{id:"schedule",Icon:Calendar,label:"予定"},{id:"inventory",Icon:Package,label:"在庫"},{id:"wiki",Icon:BookOpen,label:"Wiki"},{id:"settings",Icon:Settings,label:"設定"}] as const).map(({id,Icon,label})=>(
+            <button key={id} onClick={()=>{setActiveTab(id);if(id!=='wiki')setActiveWiki(null);}} className="flex flex-col items-center justify-center w-full h-full gap-0.5 transition-all duration-200" style={{color:activeTab===id?appearance.accentColor:"#9ca3af"}}>
               <div className="p-1.5 rounded-xl transition-all duration-200" style={activeTab===id?{background:appearance.accentColor+"22"}:{}}>
                 <Icon size={20} strokeWidth={activeTab===id?2.5:1.8}/>
               </div>
