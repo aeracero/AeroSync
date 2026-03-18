@@ -655,14 +655,14 @@ export default function AppShell() {
       .on("postgres_changes",{event:"*",schema:"public",table:"tasks"},(payload)=>{
         if(payload.eventType==="INSERT") setTasks(p=>[...p,{id:payload.new.id,title:payload.new.title,date:payload.new.date,description:payload.new.description||"",assignees:payload.new.assignees||[],openJoin:payload.new.open_join,color:payload.new.color,done:payload.new.done,priority:payload.new.priority,location:payload.new.location||""}]);
         if(payload.eventType==="UPDATE") setTasks(p=>p.map(t=>t.id===payload.new.id?{...t,done:payload.new.done,assignees:payload.new.assignees||t.assignees}:t));
-        if(payload.eventType==="DELETE") setTasks(p=>p.filter(t=>t.id!==payload.old.id));
+        if(payload.eventType==="DELETE") setTasks(p=>p.filter(t=>t.id!==(payload.old as any).id));
       }).subscribe();
 
     const invSub = supabase.channel("inventory_changes")
       .on("postgres_changes",{event:"*",schema:"public",table:"inventory"},(payload)=>{
         if(payload.eventType==="INSERT") setInventory(p=>[...p,{id:payload.new.id,name:payload.new.name,stock:payload.new.stock,total:payload.new.total,image:payload.new.image||"📦",isEmoji:payload.new.is_emoji,category:payload.new.category}]);
         if(payload.eventType==="UPDATE") setInventory(p=>p.map(i=>i.id===payload.new.id?{...i,stock:payload.new.stock}:i));
-        if(payload.eventType==="DELETE") setInventory(p=>p.filter(i=>i.id!==payload.old.id));
+        if(payload.eventType==="DELETE") setInventory(p=>p.filter(i=>i.id!==(payload.old as any).id));
       }).subscribe();
 
     const wikiSub = supabase.channel("wiki_changes")
@@ -671,14 +671,15 @@ export default function AppShell() {
           const w={id:payload.new.id,title:payload.new.title,content:payload.new.content,category:payload.new.category,updatedAt:payload.new.updated_at?.split("T")[0]||"",author:payload.new.author||"",views:payload.new.views||0};
           setWikis(p=>{ const idx=p.findIndex(x=>x.id===w.id); return idx>=0?p.map((x,i)=>i===idx?w:x):[...p,w]; });
         }
-        if(payload.eventType==="DELETE") setWikis(p=>p.filter(w=>w.id!==payload.old.id));
+        if(payload.eventType==="DELETE") setWikis(p=>p.filter(w=>w.id!==(payload.old as any).id));
       }).subscribe();
 
     const availSub = supabase.channel("avail_changes")
       .on("postgres_changes",{event:"*",schema:"public",table:"availability"},(payload)=>{
-        const a={userId:payload.new?.user_id,name:payload.new?.user_email||"",date:payload.new?.date,status:payload.new?.status,note:payload.new?.note||""};
+        const n=payload.new as any; const o=payload.old as any;
+        const a={userId:n?.user_id,name:n?.user_email||"",date:n?.date,status:n?.status,note:n?.note||""};
         if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") setAvailability(p=>[...p.filter(x=>!(x.userId===a.userId&&x.date===a.date)),a]);
-        if(payload.eventType==="DELETE") setAvailability(p=>p.filter(x=>!(x.userId===payload.old.user_id&&x.date===payload.old.date)));
+        if(payload.eventType==="DELETE") setAvailability(p=>p.filter(x=>!(x.userId===o?.user_id&&x.date===o?.date)));
       }).subscribe();
 
     const membersSub = supabase.channel("members_changes")
