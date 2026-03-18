@@ -95,7 +95,32 @@ const DEFAULT_ROLES: Role[] = [
 
 function loadLS<T>(k:string, fb:T):T { try { const r=localStorage.getItem(k); return r?JSON.parse(r):fb; } catch { return fb; } }
 function saveLS(k:string, v:unknown) { try { localStorage.setItem(k,JSON.stringify(v)); } catch {} }
-function registerSW() { if(typeof window!=="undefined"&&"serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(()=>{}); }
+function registerSW(onUpdate?: () => void) {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.register("/sw.js").then(reg => {
+    // Check for updates every 60 seconds
+    setInterval(() => reg.update(), 60_000);
+    // New SW waiting = update available
+    reg.addEventListener("updatefound", () => {
+      const newSW = reg.installing;
+      if (!newSW) return;
+      newSW.addEventListener("statechange", () => {
+        if (newSW.state === "installed" && navigator.serviceWorker.controller) {
+          onUpdate?.();
+        }
+      });
+    });
+  }).catch(() => {});
+  // Listen for the SW_UPDATED message — triggers full reload
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    if (e.data?.type === "SW_UPDATED") onUpdate?.();
+  });
+  // When a new SW takes control, reload the page automatically
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!refreshing) { refreshing = true; window.location.reload(); }
+  });
+}
 async function reqNotif():Promise<boolean> { if(!("Notification" in window)) return false; if(Notification.permission==="granted") return true; return (await Notification.requestPermission())==="granted"; }
 
 // ─── Visual Effects CSS ────────────────────────────────────────────────────────
@@ -521,9 +546,11 @@ export default function AppShell() {
     load();
   },[groupOpen]);
   const [mentionTarget, setMentionTarget] = useState<Member|null>(null);
+  const [roleChangeTarget, setRoleChangeTarget] = useState<string|null>(null); // member.id
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadCount = notifications.filter(n=>!n.read).length;
+  const [updateAvailable, setUpdateAvailable] = useState(false);
 
   const currentUserEmail = session?.user?.email ?? session?.user?.user_metadata?.full_name ?? "me";
 
@@ -539,7 +566,7 @@ export default function AppShell() {
 
   useEffect(() => {
     setIsMounted(true);
-    registerSW();
+    registerSW(() => setUpdateAvailable(true));
     const supabase = createClient();
 
     function handleSelectionChange() {
@@ -1448,8 +1475,40 @@ export default function AppShell() {
                         <AtSign size={14}/>
                       </button>
                     )}
+                    {canManageRoles&&(
+                      <button onClick={()=>setRoleChangeTarget(roleChangeTarget===member.id?null:member.id)}
+                        className="w-8 h-8 rounded-xl flex items-center justify-center bg-amber-50 text-amber-600 transition-all hover:scale-110 active:scale-90">
+                        <Shield size={14}/>
+                      </button>
+                    )}
                   </div>
                 </div>
+                {/* Inline role picker — expands under the card */}
+                {canManageRoles && roleChangeTarget===member.id&&(
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">ロールを変更</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {roles.map(r=>(
+                        <button key={r.id} onClick={async()=>{
+                          // Update local state
+                          setMemberRoles(p=>[...p.filter(mr=>mr.email!==member.email),{email:member.email||"",roleId:r.id,assignedAt:new Date().toISOString().split("T")[0],assignedBy:currentUserEmail}]);
+                          setMembers(p=>p.map(m=>m.id===member.id?{...m,role_id:r.id}:m));
+                          setRoleChangeTarget(null);
+                          // Sync to Supabase
+                          try {
+                            const sb=createClient();
+                            await sb.from("members").update({role_id:r.id}).eq("id",member.id);
+                          } catch(e){console.log("role update err",e);}
+                        }}
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border-2 transition-all active:scale-95 ${effectiveRoleId===r.id?"border-opacity-100":"border-opacity-20 opacity-60 hover:opacity-100"}`}
+                          style={{borderColor:r.color,background:effectiveRoleId===r.id?r.color+"22":"transparent",color:r.color}}>
+                          {r.icon} {r.name}
+                          {effectiveRoleId===r.id&&<Check size={10}/>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               );
             });
@@ -1859,6 +1918,20 @@ export default function AppShell() {
           </button>
         </div>
       </header>
+
+      {/* Auto-update banner */}
+      {updateAvailable&&(
+        <div className="px-4 py-2.5 text-xs font-bold flex items-center gap-2 border-b z-40 relative" style={{background:appearance.accentColor,color:"white"}}>
+          <RefreshCw size={13} className="shrink-0 animate-spin"/>
+          <span className="flex-1">新しいバージョンが利用可能です</span>
+          <button onClick={()=>window.location.reload()}
+            className="bg-white rounded-lg px-2.5 py-1 font-black text-xs transition-all active:scale-95"
+            style={{color:appearance.accentColor}}>
+            今すぐ更新
+          </button>
+          <button onClick={()=>setUpdateAvailable(false)} className="opacity-70 hover:opacity-100"><X size={13}/></button>
+        </div>
+      )}
 
       {errorMessage&&(
         <div className="bg-red-50 text-red-700 px-4 py-2.5 text-xs font-medium flex items-start gap-2 border-b border-red-100">
