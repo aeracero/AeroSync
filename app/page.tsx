@@ -11,11 +11,11 @@ import {
   MapPin, CheckSquare, TrendingUp, Zap, Shield, Crown,
   Palette, Wand2, ChevronDown, RotateCcw, Moon, Sun, Globe,
   Volume2, VolumeX, Vibrate, Eye as EyeIcon, EyeOff as EyeOffIcon,
-  Copy, Download, Upload, RefreshCw, HelpCircle, Star, Flame, Home
+  Copy, Download, Upload, RefreshCw, HelpCircle, Star, Flame, Home, AtSign, BellRing
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Tab = "home"|"schedule"|"inventory"|"wiki"|"settings";
+type Tab = "home"|"schedule"|"inventory"|"wiki"|"members"|"settings";
 type AuthMode = "login"|"signup"|"check_email";
 type SettingsTab = "profile"|"roles"|"appearance"|"notifications"|"privacy"|"data"|"about";
 
@@ -24,6 +24,9 @@ type Availability = { userId:string; name:string; date:string; status:"available
 type InventoryItem = { id:string; name:string; stock:number; total:number; image:string; isEmoji:boolean; category:string; };
 type WikiPage = { id:string; title:string; content:string; category:string; updatedAt:string; author:string; views:number; };
 type ChatMessage = { role:"user"|"assistant"; content:string; ts:number; };
+type Member = { id:string; email:string; display_name:string; avatar_url?:string; discord_id?:string; role_id:string; visual_effect:string; online_at?:string; };
+type DmMessage = { id:string; channel_id:string; sender_id:string; sender_email:string; sender_name:string; sender_avatar?:string; content:string; mentions:string[]; created_at:string; };
+type AppNotification = { id:string; type:string; title:string; body:string; read:boolean; created_at:string; };
 
 type Permission = {
   manageRoles: boolean;
@@ -497,6 +500,31 @@ export default function AppShell() {
   const [selectionTooltip, setSelectionTooltip] = useState<{text:string;x:number;y:number}|null>(null);
   const pendingSendRef = useRef(false);
 
+  // Members & realtime
+  const [members, setMembers] = useState<Member[]>([]);
+  const [dmOpen, setDmOpen] = useState<Member|null>(null);
+  const [dmMessages, setDmMessages] = useState<DmMessage[]>([]);
+  const [dmInput, setDmInput] = useState("");
+  const [dmLoading, setDmLoading] = useState(false);
+  const dmEndRef = useRef<HTMLDivElement>(null);
+  const [groupMessages, setGroupMessages] = useState<DmMessage[]>([]);
+  const [groupInput, setGroupInput] = useState("");
+  const [groupOpen, setGroupOpen] = useState(false);
+  useEffect(()=>{
+    if(!groupOpen)return;
+    const load=async()=>{
+      const supabase=createClient();
+      const {data}=await supabase.from("messages").select("*").eq("channel_id","general").order("created_at",{ascending:true}).limit(100);
+      if(data)setGroupMessages(data as DmMessage[]);
+      supabase.channel("general_msgs").on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.general`},(p)=>{setGroupMessages(prev=>[...prev,p.new as DmMessage]);}).subscribe();
+    };
+    load();
+  },[groupOpen]);
+  const [mentionTarget, setMentionTarget] = useState<Member|null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const unreadCount = notifications.filter(n=>!n.read).length;
+
   const currentUserEmail = session?.user?.email ?? session?.user?.user_metadata?.full_name ?? "me";
 
   // Derive permissions from role
@@ -558,7 +586,117 @@ export default function AppShell() {
     setChatMessages(loadLS("as_chat",[]));
     setNotifEnabled(typeof Notification!=="undefined"&&Notification.permission==="granted");
 
+    // ── Supabase realtime subscriptions ──────────────────────────────────────
+    // Fetch initial data from Supabase (fallback to localStorage already loaded above)
+    const initSupabase = async () => {
+      try {
+        // Load members
+        const { data: membersData } = await supabase.from("members").select("*").order("created_at");
+        if (membersData) setMembers(membersData);
+
+        // Load tasks
+        const { data: tasksData } = await supabase.from("tasks").select("*").order("date");
+        if (tasksData && tasksData.length > 0) setTasks(tasksData.map((t:any)=>({
+          id:t.id, title:t.title, date:t.date, description:t.description||"",
+          assignees:t.assignees||[], openJoin:t.open_join, color:t.color,
+          done:t.done, priority:t.priority, location:t.location||""
+        })));
+
+        // Load inventory
+        const { data: invData } = await supabase.from("inventory").select("*").order("created_at");
+        if (invData && invData.length > 0) setInventory(invData.map((i:any)=>({
+          id:i.id, name:i.name, stock:i.stock, total:i.total,
+          image:i.image||"📦", isEmoji:i.is_emoji, category:i.category
+        })));
+
+        // Load wiki
+        const { data: wikiData } = await supabase.from("wiki_pages").select("*").order("updated_at", {ascending:false});
+        if (wikiData && wikiData.length > 0) setWikis(wikiData.map((w:any)=>({
+          id:w.id, title:w.title, content:w.content, category:w.category,
+          updatedAt:w.updated_at?.split("T")[0]||new Date().toISOString().split("T")[0],
+          author:w.author||"", views:w.views||0
+        })));
+
+        // Load availability
+        const { data: availData } = await supabase.from("availability").select("*");
+        if (availData) setAvailability(availData.map((a:any)=>({
+          userId:a.user_id, name:a.user_email||a.user_id, date:a.date, status:a.status, note:a.note||""
+        })));
+
+        // Load notifications for current user
+        const { data: notifData } = await supabase.from("notifications").select("*").order("created_at",{ascending:false}).limit(50);
+        if (notifData) setNotifications(notifData);
+
+        // Load roles from DB
+        const { data: rolesData } = await supabase.from("roles").select("*");
+        if (rolesData && rolesData.length > 0) setRoles(rolesData.map((r:any)=>({
+          id:r.id, name:r.name, color:r.color, icon:r.icon,
+          permissions:r.permissions||DEFAULT_PERMISSIONS, isDefault:r.is_default,
+          visualEffect:r.visual_effect||"none", createdAt:r.created_at?.split("T")[0]||""
+        })));
+
+        // Update own member presence
+        const { data: { user: u } } = await supabase.auth.getUser();
+        if (u) {
+          await supabase.from("members").upsert({
+            id: u.id, email: u.email,
+            display_name: u.user_metadata?.full_name || u.email,
+            avatar_url: u.user_metadata?.avatar_url,
+            discord_id: u.user_metadata?.provider_id,
+            online_at: new Date().toISOString(),
+          });
+        }
+      } catch(e) { console.log("Supabase init error (using localStorage):", e); }
+    };
+    initSupabase();
+
+    // ── Realtime subscriptions ────────────────────────────────────────────────
+    const tasksSub = supabase.channel("tasks_changes")
+      .on("postgres_changes",{event:"*",schema:"public",table:"tasks"},(payload)=>{
+        if(payload.eventType==="INSERT") setTasks(p=>[...p,{id:payload.new.id,title:payload.new.title,date:payload.new.date,description:payload.new.description||"",assignees:payload.new.assignees||[],openJoin:payload.new.open_join,color:payload.new.color,done:payload.new.done,priority:payload.new.priority,location:payload.new.location||""}]);
+        if(payload.eventType==="UPDATE") setTasks(p=>p.map(t=>t.id===payload.new.id?{...t,done:payload.new.done,assignees:payload.new.assignees||t.assignees}:t));
+        if(payload.eventType==="DELETE") setTasks(p=>p.filter(t=>t.id!==payload.old.id));
+      }).subscribe();
+
+    const invSub = supabase.channel("inventory_changes")
+      .on("postgres_changes",{event:"*",schema:"public",table:"inventory"},(payload)=>{
+        if(payload.eventType==="INSERT") setInventory(p=>[...p,{id:payload.new.id,name:payload.new.name,stock:payload.new.stock,total:payload.new.total,image:payload.new.image||"📦",isEmoji:payload.new.is_emoji,category:payload.new.category}]);
+        if(payload.eventType==="UPDATE") setInventory(p=>p.map(i=>i.id===payload.new.id?{...i,stock:payload.new.stock}:i));
+        if(payload.eventType==="DELETE") setInventory(p=>p.filter(i=>i.id!==payload.old.id));
+      }).subscribe();
+
+    const wikiSub = supabase.channel("wiki_changes")
+      .on("postgres_changes",{event:"*",schema:"public",table:"wiki_pages"},(payload)=>{
+        if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") {
+          const w={id:payload.new.id,title:payload.new.title,content:payload.new.content,category:payload.new.category,updatedAt:payload.new.updated_at?.split("T")[0]||"",author:payload.new.author||"",views:payload.new.views||0};
+          setWikis(p=>{ const idx=p.findIndex(x=>x.id===w.id); return idx>=0?p.map((x,i)=>i===idx?w:x):[...p,w]; });
+        }
+        if(payload.eventType==="DELETE") setWikis(p=>p.filter(w=>w.id!==payload.old.id));
+      }).subscribe();
+
+    const availSub = supabase.channel("avail_changes")
+      .on("postgres_changes",{event:"*",schema:"public",table:"availability"},(payload)=>{
+        const a={userId:payload.new?.user_id,name:payload.new?.user_email||"",date:payload.new?.date,status:payload.new?.status,note:payload.new?.note||""};
+        if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") setAvailability(p=>[...p.filter(x=>!(x.userId===a.userId&&x.date===a.date)),a]);
+        if(payload.eventType==="DELETE") setAvailability(p=>p.filter(x=>!(x.userId===payload.old.user_id&&x.date===payload.old.date)));
+      }).subscribe();
+
+    const membersSub = supabase.channel("members_changes")
+      .on("postgres_changes",{event:"*",schema:"public",table:"members"},(payload)=>{
+        if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") setMembers(p=>{const idx=p.findIndex(m=>m.id===payload.new.id);return idx>=0?p.map((m,i)=>i===idx?{...m,...payload.new}:m):[...p,payload.new as Member];});
+      }).subscribe();
+
+    const notifSub = supabase.channel("notif_changes")
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"notifications"},(payload)=>{
+        setNotifications(p=>[payload.new as AppNotification,...p]);
+        // Show browser notification
+        if(typeof Notification!=="undefined"&&Notification.permission==="granted") {
+          new Notification(payload.new.title,{body:payload.new.body,icon:"/icons/icon-192.png"});
+        }
+      }).subscribe();
+
     return () => {
+      try { tasksSub.unsubscribe(); invSub.unsubscribe(); wikiSub.unsubscribe(); availSub.unsubscribe(); membersSub.unsubscribe(); notifSub.unsubscribe(); } catch {}
       subscription.unsubscribe();
       document.removeEventListener("pointerup", handleSelectionChange);
       document.removeEventListener("pointerdown", handlePointerDown);
@@ -573,6 +711,7 @@ export default function AppShell() {
   },[tasks,inventory,wikis,availability,roles,memberRoles,appearance,myVisualEffect,chatMessages,isMounted]);
 
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[chatMessages]);
+  useEffect(()=>{ dmEndRef.current?.scrollIntoView({behavior:"smooth"}); },[dmMessages]);
   useEffect(()=>{ if(searchOpen) setTimeout(()=>searchRef.current?.focus(),100); },[searchOpen]);
 
   useEffect(()=>{
@@ -604,18 +743,41 @@ export default function AppShell() {
   };
 
   // ── Tasks ─────────────────────────────────────────────────────────────────
-  const addTask = useCallback(()=>{
+  const addTask = useCallback(async()=>{
     if(!newTask.title.trim())return;
-    setTasks(prev=>[...prev,{id:Date.now().toString(),title:newTask.title.trim(),date:selectedDate,description:newTask.desc.trim(),done:false,color:newTask.color,openJoin:newTask.open,assignees:newTask.assignees,priority:newTask.priority,location:newTask.location}]);
+    const supabase = createClient();
+    const { data:{ user } } = await supabase.auth.getUser();
+    // Optimistic local add
+    const localId = Date.now().toString();
+    setTasks(prev=>[...prev,{id:localId,title:newTask.title.trim(),date:selectedDate,description:newTask.desc.trim(),done:false,color:newTask.color,openJoin:newTask.open,assignees:newTask.assignees,priority:newTask.priority,location:newTask.location}]);
     setNewTask({title:"",desc:"",color:TASK_COLORS[0],open:true,assignees:[],priority:"medium",location:""}); setShowTaskForm(false);
+    // Sync to Supabase
+    try {
+      const { data, error } = await supabase.from("tasks").insert({
+        title:newTask.title.trim(), date:selectedDate, description:newTask.desc.trim(),
+        done:false, color:newTask.color, open_join:newTask.open, assignees:newTask.assignees,
+        priority:newTask.priority, location:newTask.location, created_by:user?.id
+      }).select().single();
+      // Replace optimistic id with real id
+      if(data) setTasks(p=>p.map(t=>t.id===localId?{...t,id:data.id}:t));
+    } catch(e) { console.log("Task sync error:", e); }
   },[newTask,selectedDate]);
 
   // ── Inventory ─────────────────────────────────────────────────────────────
-  const addInventory = useCallback(()=>{
+  const addInventory = useCallback(async()=>{
     if(!newInv.name.trim()||!newInv.total)return;
     const n=parseInt(newInv.total,10); if(isNaN(n)||n<1)return;
-    setInventory(prev=>[...prev,{id:Date.now().toString(),name:newInv.name.trim(),stock:n,total:n,image:newInv.image??newInv.emoji,isEmoji:!newInv.image,category:newInv.category}]);
+    const supabase = createClient();
+    const localId = Date.now().toString();
+    setInventory(prev=>[...prev,{id:localId,name:newInv.name.trim(),stock:n,total:n,image:newInv.image??newInv.emoji,isEmoji:!newInv.image,category:newInv.category}]);
     setNewInv({name:"",total:"",emoji:"📦",image:null,category:INV_CATS[0]}); setShowInvForm(false);
+    try {
+      const { data } = await supabase.from("inventory").insert({
+        name:newInv.name.trim(), stock:n, total:n,
+        image:newInv.image??newInv.emoji, is_emoji:!newInv.image, category:newInv.category
+      }).select().single();
+      if(data) setInventory(p=>p.map(i=>i.id===localId?{...i,id:data.id}:i));
+    } catch(e) { console.log("Inventory sync error:", e); }
   },[newInv]);
 
   // ── Wiki ──────────────────────────────────────────────────────────────────
@@ -638,6 +800,66 @@ export default function AppShell() {
     } catch { setChatMessages(prev=>[...prev,{role:"assistant",content:"接続エラーが発生しました",ts:Date.now()}]); }
     finally { setChatLoading(false); }
   };
+
+  // ── DM helpers ─────────────────────────────────────────────────────────────
+  const sendDm = async()=>{
+    if(!dmInput.trim()||!dmOpen||dmLoading)return;
+    const supabase=createClient();
+    const {data:{user}}=await supabase.auth.getUser();
+    if(!user)return;
+    const channelId=`dm:${[user.id,dmOpen.id].sort().join(":")}`;
+    const msg:DmMessage={id:Date.now().toString(),channel_id:channelId,channel_type:"dm",sender_id:user.id,sender_email:user.email||"",sender_name:user.user_metadata?.full_name||user.email||"",content:dmInput.trim(),mentions:[],created_at:new Date().toISOString()};
+    setDmMessages(p=>[...p,msg]);
+    setDmInput("");setDmLoading(true);
+    try {
+      await supabase.from("messages").insert({channel_id:channelId,channel_type:"dm",sender_id:user.id,sender_email:user.email,sender_name:user.user_metadata?.full_name||user.email,content:msg.content,mentions:[]});
+      await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"message",targetUserId:dmOpen.id,targetDiscordId:dmOpen.discord_id,message:{title:`📩 ${user.user_metadata?.full_name||user.email}からDM`,body:msg.content,data:{channelId}}})});
+    } catch(e){console.log("DM send error:",e);}
+    finally{setDmLoading(false);}
+  };
+
+  const loadDmHistory = async(member:Member)=>{
+    setDmOpen(member);setDmMessages([]);
+    try {
+      const supabase=createClient();
+      const {data:{user}}=await supabase.auth.getUser();
+      if(!user)return;
+      const channelId=`dm:${[user.id,member.id].sort().join(":")}`;
+      const {data}=await supabase.from("messages").select("*").eq("channel_id",channelId).order("created_at",{ascending:true}).limit(50);
+      if(data) setDmMessages(data as DmMessage[]);
+      supabase.channel(`dm_${channelId.replace(/:/g,"_")}`).on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.${channelId}`},(p)=>{
+        setDmMessages(prev=>[...prev,p.new as DmMessage]);
+      }).subscribe();
+    } catch(e){console.log("DM load error:",e);}
+  };
+
+  const sendGroupMessage = async(mentionMember?:Member)=>{
+    if(!groupInput.trim())return;
+    const supabase=createClient();
+    const {data:{user}}=await supabase.auth.getUser();
+    if(!user)return;
+    const mentions=mentionMember?[mentionMember.id]:[];
+    const msg:DmMessage={id:Date.now().toString(),channel_id:"general",channel_type:"group",sender_id:user.id,sender_email:user.email||"",sender_name:user.user_metadata?.full_name||user.email||"",content:groupInput.trim(),mentions,created_at:new Date().toISOString()};
+    setGroupMessages(p=>[...p,msg]);
+    setGroupInput("");setMentionTarget(null);
+    try {
+      await supabase.from("messages").insert({channel_id:"general",channel_type:"group",sender_id:user.id,sender_email:user.email,sender_name:user.user_metadata?.full_name||user.email,content:msg.content,mentions});
+      if(mentionMember){
+        await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"mention",targetUserId:mentionMember.id,targetDiscordId:mentionMember.discord_id,message:{title:`🔔 @${user.user_metadata?.full_name||user.email}からメンション`,body:msg.content,data:{}}})});
+      }
+    } catch(e){console.log("Group msg error:",e);}
+  };
+
+  const sendMentionToDiscord = async(member:Member, message:string)=>{
+    if(!perms.manageMembers&&!perms.manageRoles){alert("メンション権限がありません");return;}
+    const supabase=createClient();
+    const {data:{user}}=await supabase.auth.getUser();
+    try {
+      await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"mention",targetUserId:member.id,targetDiscordId:member.discord_id,message:{title:`🔔 @メンション`,body:message,data:{}}})});
+      await supabase.from("notifications").insert({user_id:member.id,type:"mention",title:`@${user?.user_metadata?.full_name||user?.email}からメンション`,body:message});
+    } catch(e){console.log("Mention error:",e);}
+  };
+
 
   useEffect(()=>{
     if(chatOpen&&pendingSendRef.current&&chatInput.trim()){ pendingSendRef.current=false; sendChat(); }
@@ -1129,7 +1351,180 @@ export default function AppShell() {
       );
     }
 
-    // ── Settings ──────────────────────────────────────────────────────────
+    // ── Members ───────────────────────────────────────────────────────────
+    if(activeTab==="members") return (
+      <div className={`p-4 space-y-4 ${fadeIn}`}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-black text-gray-900 flex items-center gap-2"><Users size={20} style={{color:appearance.accentColor}}/> メンバー</h2>
+          <span className="text-xs font-bold px-2.5 py-1 rounded-full text-white" style={{background:appearance.accentColor}}>{members.length}人</span>
+        </div>
+
+        {/* Group chat */}
+        <button onClick={()=>setGroupOpen(true)} className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5 flex items-center gap-3 hover:shadow-md transition-all active:scale-[0.99]">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style={{background:appearance.accentColor+"22"}}>💬</div>
+          <div className="flex-1 text-left">
+            <p className="text-sm font-black text-gray-900">グループチャット</p>
+            <p className="text-xs text-gray-500">全員へのメッセージ・メンション</p>
+          </div>
+          <ChevronRight size={16} className="text-gray-300"/>
+        </button>
+
+        {/* Members list */}
+        <div className="space-y-2">
+          {members.length===0?(
+            <div className="text-center py-8 bg-white rounded-2xl border border-gray-100">
+              <p className="text-2xl mb-2">👥</p>
+              <p className="text-sm font-bold text-gray-700">まだメンバーがいません</p>
+              <p className="text-xs text-gray-400 mt-1">メンバーがログインすると自動で表示されます</p>
+            </div>
+          ):members.map(member=>{
+            const role = roles.find(r=>r.id===member.role_id) ?? roles.find(r=>r.id==="member")!;
+            const isOnline = member.online_at && (Date.now()-new Date(member.online_at).getTime()) < 5*60*1000;
+            const isMe = member.email === currentUserEmail;
+            return (
+              <div key={member.id} className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5 ${fadeIn}`}>
+                <div className="flex items-center gap-3">
+                  <div className="relative shrink-0">
+                    {member.avatar_url
+                      ?<img src={member.avatar_url} alt="" className="w-11 h-11 rounded-xl object-cover"/>
+                      :<div className="w-11 h-11 rounded-xl flex items-center justify-center font-black text-white text-base" style={{background:role.color}}>{(member.display_name||member.email||"?").charAt(0).toUpperCase()}</div>
+                    }
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${isOnline?"bg-green-400":"bg-gray-300"}`}/>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <VisualEffectWrapper effect={member.visual_effect||"none"}>
+                        <span className="text-sm font-black text-gray-900 truncate">
+                          {member.display_name||member.email?.split("@")[0]||"Unknown"}
+                          {isMe&&<span className="ml-1 text-[10px] text-gray-400 font-normal">（あなた）</span>}
+                        </span>
+                      </VisualEffectWrapper>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <VisualEffectWrapper effect={role.visualEffect||"none"}>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{background:role.color+"22",color:role.color}}>{role.icon} {role.name}</span>
+                      </VisualEffectWrapper>
+                      {member.discord_id&&<span className="text-[10px] text-indigo-500 font-bold bg-indigo-50 px-1.5 py-0.5 rounded-full">Discord連携</span>}
+                      <span className={`text-[10px] font-bold ${isOnline?"text-green-500":"text-gray-400"}`}>{isOnline?"オンライン":"オフライン"}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!isMe&&(
+                      <button onClick={()=>loadDmHistory(member)}
+                        className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-90"
+                        style={{background:appearance.accentColor+"22",color:appearance.accentColor}}>
+                        <MessageCircle size={14}/>
+                      </button>
+                    )}
+                    {!isMe&&perms.manageMembers&&(
+                      <button onClick={()=>{
+                        const msg=prompt(`@${member.display_name||member.email} へのメンション内容:`);
+                        if(msg) sendMentionToDiscord(member,msg);
+                      }} className="w-8 h-8 rounded-xl flex items-center justify-center bg-purple-50 text-purple-600 transition-all hover:scale-110 active:scale-90">
+                        <AtSign size={14}/>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* DM panel */}
+        {dmOpen&&(
+          <div className="fixed inset-0 bg-black/50 z-50 flex flex-col" onClick={()=>setDmOpen(null)}>
+            <div className="flex-1"/>
+            <div className={`bg-white rounded-t-3xl flex flex-col overflow-hidden ${slideUp}`} style={{height:"75vh"}} onClick={e=>e.stopPropagation()}>
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 shrink-0" style={{background:`linear-gradient(135deg,${appearance.accentColor},${appearance.accentColor}bb)`}}>
+                {dmOpen.avatar_url
+                  ?<img src={dmOpen.avatar_url} alt="" className="w-8 h-8 rounded-xl object-cover"/>
+                  :<div className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-white text-sm" style={{background:"rgba(255,255,255,0.2)"}}>{(dmOpen.display_name||dmOpen.email||"?").charAt(0).toUpperCase()}</div>
+                }
+                <div className="flex-1">
+                  <p className="text-sm font-black text-white">{dmOpen.display_name||dmOpen.email?.split("@")[0]}</p>
+                  <p className="text-[10px] text-white/70">{dmOpen.discord_id?"Discord連携済み":"メール連携"}</p>
+                </div>
+                <button onClick={()=>setDmOpen(null)} className="w-7 h-7 bg-white/20 rounded-lg flex items-center justify-center"><X size={14} className="text-white"/></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-2.5 bg-gray-50">
+                {dmMessages.length===0&&<div className="text-center py-8"><p className="text-sm text-gray-400">まだメッセージはありません</p></div>}
+                {dmMessages.map((m,i)=>{
+                  const isMe=m.sender_email===currentUserEmail;
+                  return (
+                    <div key={i} className={`flex gap-2 ${isMe?"flex-row-reverse":""}`}>
+                      <div className="w-6 h-6 rounded-lg bg-gray-200 flex items-center justify-center shrink-0 text-xs font-bold text-gray-600">{(m.sender_name||"?").charAt(0).toUpperCase()}</div>
+                      <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${isMe?"text-white rounded-tr-sm":"bg-white border border-gray-100 text-gray-800 shadow-sm rounded-tl-sm"}`} style={isMe?{background:appearance.accentColor}:{}}>
+                        {m.content}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={dmEndRef}/>
+              </div>
+              <div className="p-3 bg-white border-t border-gray-100 flex gap-2 shrink-0">
+                <input value={dmInput} onChange={e=>setDmInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendDm()} placeholder="メッセージを送信..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition"/>
+                <button onClick={sendDm} disabled={dmLoading||!dmInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95" style={{background:appearance.accentColor}}><Send size={14}/></button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Group chat panel */}
+        {groupOpen&&(
+          <div className="fixed inset-0 bg-black/50 z-50 flex flex-col" onClick={()=>setGroupOpen(false)}>
+            <div className="flex-1"/>
+            <div className={`bg-white rounded-t-3xl flex flex-col overflow-hidden ${slideUp}`} style={{height:"75vh"}} onClick={e=>e.stopPropagation()}>
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 shrink-0" style={{background:`linear-gradient(135deg,${appearance.accentColor},${appearance.accentColor}bb)`}}>
+                <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center text-base">💬</div>
+                <div className="flex-1"><p className="text-sm font-black text-white">グループチャット</p><p className="text-[10px] text-white/70">{members.length}人のメンバー</p></div>
+                <button onClick={()=>setGroupOpen(false)} className="w-7 h-7 bg-white/20 rounded-lg flex items-center justify-center"><X size={14} className="text-white"/></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-2.5 bg-gray-50">
+                {groupMessages.length===0&&<div className="text-center py-8"><p className="text-sm text-gray-400">まだメッセージはありません</p><p className="text-xs text-gray-400 mt-1">@で始めてメンバーをメンション</p></div>}
+                {groupMessages.map((m,i)=>{
+                  const isMe=m.sender_email===currentUserEmail;
+                  return (
+                    <div key={i} className={`flex gap-2 ${isMe?"flex-row-reverse":""}`}>
+                      <div className="w-6 h-6 rounded-lg bg-gray-200 flex items-center justify-center shrink-0 text-xs font-bold text-gray-600">{(m.sender_name||"?").charAt(0).toUpperCase()}</div>
+                      <div>
+                        {!isMe&&<p className="text-[10px] text-gray-400 mb-0.5 ml-1">{m.sender_name}</p>}
+                        <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${isMe?"text-white rounded-tr-sm":"bg-white border border-gray-100 text-gray-800 shadow-sm rounded-tl-sm"}`} style={isMe?{background:appearance.accentColor}:{}}>
+                          {m.content}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Mention target preview */}
+              {mentionTarget&&(
+                <div className="px-4 py-2 bg-blue-50 border-t border-blue-100 flex items-center gap-2">
+                  <AtSign size={12} className="text-blue-500"/><span className="text-xs font-bold text-blue-700">@{mentionTarget.display_name||mentionTarget.email}</span>
+                  <button onClick={()=>setMentionTarget(null)}><X size={12} className="text-blue-400"/></button>
+                </div>
+              )}
+              <div className="p-3 bg-white border-t border-gray-100 flex gap-2 shrink-0">
+                {perms.manageMembers&&(
+                  <button onClick={()=>{
+                    const m=members.filter(x=>x.email!==currentUserEmail);
+                    if(m.length===0)return;
+                    setMentionTarget(m[0]);
+                    setGroupInput(`@${m[0].display_name||m[0].email} `);
+                  }} className="w-9 h-9 rounded-xl flex items-center justify-center bg-purple-50 text-purple-600 shrink-0 hover:bg-purple-100 transition-all">
+                    <AtSign size={14}/>
+                  </button>
+                )}
+                <input value={groupInput} onChange={e=>setGroupInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendGroupMessage(mentionTarget??undefined)} placeholder="全員へメッセージ..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition"/>
+                <button onClick={()=>sendGroupMessage(mentionTarget??undefined)} disabled={!groupInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95" style={{background:appearance.accentColor}}><Send size={14}/></button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+
+        // ── Settings ──────────────────────────────────────────────────────────
     if(activeTab==="settings") {
       const SETTINGS_TABS: {id:SettingsTab; label:string; icon:React.ReactNode}[] = [
         {id:"profile",label:"プロフィール",icon:<User size={14}/>},
@@ -1430,6 +1825,10 @@ export default function AppShell() {
               {myRoleData?.icon} {myRoleData?.name}
             </span>
           </VisualEffectWrapper>
+          <button onClick={()=>setNotifOpen(true)} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-all active:scale-90 relative">
+            <BellRing size={18} className="text-gray-500"/>
+            {unreadCount>0&&<span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full text-[9px] font-black text-white flex items-center justify-center" style={{background:appearance.accentColor}}>{unreadCount>9?"9+":unreadCount}</span>}
+          </button>
           <button onClick={()=>setSearchOpen(true)} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-all active:scale-90">
             <Search size={18} className="text-gray-500"/>
           </button>
@@ -1448,7 +1847,7 @@ export default function AppShell() {
       {/* Nav */}
       <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-gray-100 z-30" style={{paddingBottom:"env(safe-area-inset-bottom)"}}>
         <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
-          {([{id:"home",Icon:Home,label:"ホーム"},{id:"schedule",Icon:Calendar,label:"予定"},{id:"inventory",Icon:Package,label:"在庫"},{id:"wiki",Icon:BookOpen,label:"Wiki"},{id:"settings",Icon:Settings,label:"設定"}] as const).map(({id,Icon,label})=>(
+          {([{id:"home",Icon:Home,label:"ホーム"},{id:"schedule",Icon:Calendar,label:"予定"},{id:"inventory",Icon:Package,label:"在庫"},{id:"members",Icon:Users,label:"メンバー"},{id:"settings",Icon:Settings,label:"設定"}] as const).map(({id,Icon,label})=>(
             <button key={id} onClick={()=>{setActiveTab(id);if(id!=='wiki')setActiveWiki(null);}} className="flex flex-col items-center justify-center w-full h-full gap-0.5 transition-all duration-200" style={{color:activeTab===id?appearance.accentColor:"#9ca3af"}}>
               <div className="p-1.5 rounded-xl transition-all duration-200" style={activeTab===id?{background:appearance.accentColor+"22"}:{}}>
                 <Icon size={20} strokeWidth={activeTab===id?2.5:1.8}/>
@@ -1529,6 +1928,43 @@ export default function AppShell() {
             <Sparkles size={11}/> AIに聞く
           </button>
           <div className="w-2.5 h-2.5 rotate-45 mx-auto -mt-1.5 rounded-sm" style={{background:"#111827"}}/>
+        </div>
+      )}
+
+      {/* Notification panel */}
+      {notifOpen&&(
+        <div className="fixed inset-0 bg-black/50 z-50 flex flex-col" onClick={()=>setNotifOpen(false)}>
+          <div className="flex-1"/>
+          <div className={`bg-white rounded-t-3xl max-h-[70vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
+            <div className="sticky top-0 bg-white flex items-center justify-between px-4 py-3.5 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <BellRing size={16} style={{color:appearance.accentColor}}/>
+                <h3 className="font-black text-gray-900">通知</h3>
+                {unreadCount>0&&<span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{background:appearance.accentColor}}>{unreadCount}</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                {unreadCount>0&&<button onClick={()=>setNotifications(p=>p.map(n=>({...n,read:true})))} className="text-xs font-bold" style={{color:appearance.accentColor}}>すべて既読</button>}
+                <button onClick={()=>setNotifOpen(false)} className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center"><X size={13} className="text-gray-500"/></button>
+              </div>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {notifications.length===0&&<div className="text-center py-10"><p className="text-2xl mb-2">🔔</p><p className="text-sm text-gray-400">通知はありません</p></div>}
+              {notifications.map(n=>(
+                <div key={n.id} onClick={()=>setNotifications(p=>p.map(x=>x.id===n.id?{...x,read:true}:x))}
+                  className={`flex items-start gap-3 px-4 py-3.5 cursor-pointer transition-colors ${n.read?"":"bg-blue-50/50"}`}>
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-lg mt-0.5" style={{background:appearance.accentColor+"22"}}>
+                    {n.type==="mention"?"@":n.type==="message"?"💬":n.type==="task_assigned"?"📋":"🔔"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-bold ${n.read?"text-gray-600":"text-gray-900"}`}>{n.title}</p>
+                    {n.body&&<p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.body}</p>}
+                    <p className="text-[10px] text-gray-400 mt-1">{new Date(n.created_at).toLocaleString("ja-JP",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</p>
+                  </div>
+                  {!n.read&&<div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{background:appearance.accentColor}}/>}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
