@@ -577,15 +577,12 @@ export default function AppShell() {
     });
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,s)=>setSession(s));
 
-    setTasks(loadLS("as_tasks",[]));
-    setInventory(loadLS("as_inventory",[{id:"1",name:"一眼レフカメラ",stock:1,total:1,image:"📷",isEmoji:true,category:"カメラ"}]));
-    setWikis(loadLS("as_wikis",[{id:"1",title:"AeroSync使い方ガイド",content:"# AeroSync使い方ガイド\n\n## はじめに\nこのWikiはAeroSyncの使い方をまとめたものです。\n\n## スケジュール\nカレンダーから日付を選んでタスクを追加できます。\n\n## 在庫管理\n機材の在庫を管理できます。",category:"一般",updatedAt:new Date().toISOString().split("T")[0],author:"Admin",views:0}]));
-    setAvailability(loadLS("as_avail",[]));
-    setRoles(loadLS("as_roles",DEFAULT_ROLES));
-    setMemberRoles(loadLS("as_memberroles",[]));
-    setAppearance(loadLS("as_appearance",{theme:"system",accentColor:"#3b82f6",fontSize:"md",reduceMotion:false,compactMode:false}));
-    setMyVisualEffect(loadLS("as_myeffect","none"));
-    setChatMessages(loadLS("as_chat",[]));
+    // Only load UI preferences from localStorage — shared data always comes from Supabase
+    setRoles(loadLS("as_roles", DEFAULT_ROLES));
+    setMemberRoles(loadLS("as_memberroles", []));
+    setAppearance(loadLS("as_appearance", {theme:"system",accentColor:"#3b82f6",fontSize:"md",reduceMotion:false,compactMode:false}));
+    setMyVisualEffect(loadLS("as_myeffect", "none"));
+    setChatMessages(loadLS("as_chat", []));
     setNotifEnabled(typeof Notification!=="undefined"&&Notification.permission==="granted");
 
     // ── Supabase realtime subscriptions ──────────────────────────────────────
@@ -648,8 +645,14 @@ export default function AppShell() {
             online_at: new Date().toISOString(),
           });
         }
-      } catch(e) { console.log("Supabase init error (using localStorage):", e); }
+      } catch(e) {
+        console.error("[AeroSync] Supabase init failed:", e);
+        // Log which env vars are set
+        console.log("[AeroSync] SUPABASE_URL set:", !!process.env.NEXT_PUBLIC_SUPABASE_URL);
+      }
     };
+    // initSupabase runs immediately — auth session is already set from cookies
+    // We call getUser() inside initSupabase anyway before upsert
     initSupabase();
 
     // ── Realtime subscriptions ────────────────────────────────────────────────
@@ -708,10 +711,13 @@ export default function AppShell() {
 
   useEffect(()=>{
     if(!isMounted)return;
-    saveLS("as_tasks",tasks); saveLS("as_inventory",inventory); saveLS("as_wikis",wikis);
-    saveLS("as_avail",availability); saveLS("as_roles",roles); saveLS("as_memberroles",memberRoles);
-    saveLS("as_appearance",appearance); saveLS("as_myeffect",myVisualEffect); saveLS("as_chat",chatMessages);
-  },[tasks,inventory,wikis,availability,roles,memberRoles,appearance,myVisualEffect,chatMessages,isMounted]);
+    // Only persist UI preferences locally — shared data lives in Supabase
+    saveLS("as_roles", roles);
+    saveLS("as_memberroles", memberRoles);
+    saveLS("as_appearance", appearance);
+    saveLS("as_myeffect", myVisualEffect);
+    saveLS("as_chat", chatMessages);
+  },[roles,memberRoles,appearance,myVisualEffect,chatMessages,isMounted]);
 
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[chatMessages]);
   useEffect(()=>{ dmEndRef.current?.scrollIntoView({behavior:"smooth"}); },[dmMessages]);
@@ -740,9 +746,15 @@ export default function AppShell() {
   const handleLogout = async()=>{ const s=createClient(); await s.auth.signOut(); };
 
   // ── Availability ─────────────────────────────────────────────────────────
-  const setMyAvail = (status:Availability["status"])=>{
+  const setMyAvail = async(status:Availability["status"])=>{
     setMyAvailStatus(status);
     setAvailability(prev=>[...prev.filter(a=>!(a.userId===currentUserEmail&&a.date===selectedDate)),{userId:currentUserEmail,name:currentUserEmail,date:selectedDate,status,note:availNote}]);
+    try {
+      const sb=createClient();
+      const {data:{user}}=await sb.auth.getUser();
+      if(!user)return;
+      await sb.from("availability").upsert({user_id:user.id,user_email:currentUserEmail,date:selectedDate,status,note:availNote},{onConflict:"user_id,date"});
+    } catch(e){console.log("avail sync err",e);}
   };
 
   // ── Tasks ─────────────────────────────────────────────────────────────────
@@ -1238,10 +1250,10 @@ export default function AppShell() {
                     {task.location&&<div className="flex items-center gap-1 mt-1"><MapPin size={10} className="text-gray-400"/><span className="text-[10px] text-gray-400">{task.location}</span></div>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={()=>setTasks(p=>p.map(t=>t.id===task.id?{...t,done:!t.done}:t))} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.done?"border-green-500":"border-gray-300 hover:border-green-400"}`} style={task.done?{background:"#22c55e"}:{}}>
+                    <button onClick={async()=>{const newDone=!task.done;setTasks(p=>p.map(t=>t.id===task.id?{...t,done:newDone}:t));try{const sb=createClient();await sb.from('tasks').update({done:newDone}).eq('id',task.id);}catch(e){console.log('toggle done err',e);}}} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.done?"border-green-500":"border-gray-300 hover:border-green-400"}`} style={task.done?{background:"#22c55e"}:{}}>
                       {task.done&&<Check size={12} className="text-white"/>}
                     </button>
-                    {perms.manageTasks&&<button onClick={()=>setTasks(p=>p.filter(t=>t.id!==task.id))} className="p-1 text-gray-300 hover:text-red-400 transition-colors"><Trash2 size={14}/></button>}
+                    {perms.manageTasks&&<button onClick={async()=>{setTasks(p=>p.filter(t=>t.id!==task.id));try{const sb=createClient();await sb.from("tasks").delete().eq("id",task.id);}catch(e){console.log("delete task err",e);}}} className="p-1 text-gray-300 hover:text-red-400 transition-colors"><Trash2 size={14}/></button>}
                   </div>
                 </div>
                 {task.openJoin&&!task.assignees.includes(currentUserEmail)&&<button onClick={()=>setTasks(p=>p.map(t=>t.id===task.id?{...t,assignees:[...t.assignees,currentUserEmail]}:t))} className="mt-2 w-full py-1.5 rounded-xl text-xs font-bold text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 transition-colors flex items-center justify-center gap-1"><UserPlus size={12}/> タスクに参加</button>}
@@ -1292,7 +1304,7 @@ export default function AppShell() {
                   <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden"><div className="h-full rounded-full transition-all duration-500" style={{width:`${(item.stock/item.total)*100}%`,background:item.stock===0?"#ef4444":item.stock<item.total*0.3?"#f59e0b":appearance.accentColor}}/></div>
                   <span className="text-[10px] font-bold text-gray-500 shrink-0">{item.stock}/{item.total}</span>
                 </div>
-                {perms.manageInventory&&<div className="flex gap-1"><button onClick={()=>setInventory(p=>p.map(x=>x.id===item.id&&x.stock>0?{...x,stock:x.stock-1}:x))} className="flex-1 py-1 bg-red-50 text-red-500 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors">−</button><button onClick={()=>setInventory(p=>p.map(x=>x.id===item.id&&x.stock<x.total?{...x,stock:x.stock+1}:x))} className="flex-1 py-1 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors">＋</button></div>}
+                {perms.manageInventory&&<div className="flex gap-1"><button onClick={async()=>{const ns=Math.max(0,item.stock-1);setInventory(p=>p.map(x=>x.id===item.id?{...x,stock:ns}:x));try{const sb=createClient();await sb.from('inventory').update({stock:ns}).eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="flex-1 py-1 bg-red-50 text-red-500 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors">−</button><button onClick={async()=>{const ns=Math.min(item.total,item.stock+1);setInventory(p=>p.map(x=>x.id===item.id?{...x,stock:ns}:x));try{const sb=createClient();await sb.from('inventory').update({stock:ns}).eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="flex-1 py-1 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors">＋</button></div>}
               </div>
             </div>
           ))}
@@ -1320,7 +1332,7 @@ export default function AppShell() {
 
     // ── Wiki ──────────────────────────────────────────────────────────────
     if(activeTab==="wiki"){
-      if(activeWiki) return <WikiPageView page={activeWiki} canEdit={perms.manageWiki} onSave={updated=>{setWikis(p=>p.map(w=>w.id===updated.id?updated:w));setActiveWiki(updated);}} onBack={()=>setActiveWiki(null)}/>;
+      if(activeWiki) return <WikiPageView page={activeWiki} canEdit={perms.manageWiki} onSave={async(updated)=>{setWikis(p=>p.map(w=>w.id===updated.id?updated:w));setActiveWiki(updated);try{const sb=createClient();await sb.from('wiki_pages').update({title:updated.title,content:updated.content,category:updated.category,updated_at:new Date().toISOString(),views:updated.views}).eq('id',updated.id);}catch(e){console.log('wiki save err',e);}}} onBack={()=>setActiveWiki(null)}/>;
       const fw=wikiFilter==="すべて"?wikis:wikis.filter(w=>w.category===wikiFilter);
       return (
         <div className={`p-4 space-y-4 ${fadeIn}`}>
