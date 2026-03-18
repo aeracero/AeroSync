@@ -533,7 +533,9 @@ export default function AppShell() {
   const perms = myRoleData?.permissions ?? DEFAULT_PERMISSIONS;
   const isAdmin = perms.manageTasks || perms.manageInventory || perms.manageWiki;
   const canManageRoles = perms.manageRoles || perms.manageMembers;
-  const noOwner = !memberRoles.some(m=>m.roleId==="owner");
+  // noOwner = no one in memberRoles has owner AND no one in members DB has role_id="owner"
+  const noOwner = !memberRoles.some(m=>m.roleId==="owner") && !members.some(m=>m.role_id==="owner");
+  const imAlreadyOwner = myRole?.roleId==="owner" || myRoleData?.id==="owner";
 
   useEffect(() => {
     setIsMounted(true);
@@ -860,7 +862,6 @@ export default function AppShell() {
       await supabase.from("notifications").insert({user_id:member.id,type:"mention",title:`@${user?.user_metadata?.full_name||user?.email}からメンション`,body:message});
     } catch(e){console.log("Mention error:",e);}
   };
-
 
   useEffect(()=>{
     if(chatOpen&&pendingSendRef.current&&chatInput.trim()){ pendingSendRef.current=false; sendChat(); }
@@ -1371,15 +1372,25 @@ export default function AppShell() {
         </button>
 
         {/* Members list */}
+
         <div className="space-y-2">
-          {members.length===0?(
-            <div className="text-center py-8 bg-white rounded-2xl border border-gray-100">
-              <p className="text-2xl mb-2">👥</p>
-              <p className="text-sm font-bold text-gray-700">まだメンバーがいません</p>
-              <p className="text-xs text-gray-400 mt-1">メンバーがログインすると自動で表示されます</p>
-            </div>
-          ):members.map(member=>{
-            const role = roles.find(r=>r.id===member.role_id) ?? roles.find(r=>r.id==="member")!;
+          {(()=>{
+            const dbEmails = new Set(members.map(m=>m.email));
+            const extraFromRoles: Member[] = memberRoles
+              .filter(mr=>!dbEmails.has(mr.email))
+              .map(mr=>({id:mr.email,email:mr.email,display_name:mr.email.split("@")[0],role_id:mr.roleId,visual_effect:"none",online_at:undefined}));
+            const allMembers = [...members,...extraFromRoles];
+            if(allMembers.length===0) return (
+              <div className="text-center py-8 bg-white rounded-2xl border border-gray-100">
+                <p className="text-2xl mb-2">👥</p>
+                <p className="text-sm font-bold text-gray-700">まだメンバーがいません</p>
+                <p className="text-xs text-gray-400 mt-1">メンバーがログインすると自動で表示されます</p>
+              </div>
+            );
+            return allMembers.map(member=>{
+              const localAssignment = memberRoles.find(mr=>mr.email===member.email);
+              const effectiveRoleId = localAssignment?.roleId ?? member.role_id ?? "member";
+              const role = roles.find(r=>r.id===effectiveRoleId) ?? roles.find(r=>r.id==="member")!;
             const isOnline = member.online_at && (Date.now()-new Date(member.online_at).getTime()) < 5*60*1000;
             const isMe = member.email === currentUserEmail;
             return (
@@ -1428,8 +1439,9 @@ export default function AppShell() {
                   </div>
                 </div>
               </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
 
         {/* DM panel */}
@@ -1598,7 +1610,7 @@ export default function AppShell() {
             {settingsTab==="roles"&&(
               <>
                 {/* ── No-owner bootstrap banner ── */}
-                {noOwner&&(
+                {noOwner && !imAlreadyOwner &&(
                   <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
                     <div className="flex items-start gap-3">
                       <span className="text-2xl shrink-0">👑</span>
