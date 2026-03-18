@@ -1294,8 +1294,8 @@ export default function AppShell() {
                   const isSel=day===selectedDate;
                   return <button key={day} onClick={()=>setSelectedDate(day)} className="flex-1 flex flex-col items-center gap-0.5">
                     <span className={`text-[9px] font-bold ${isToday?"text-blue-500":isSel?"text-gray-900":"text-gray-400"}`}>{"日月火水木金土"[i]}</span>
-                    <div className={`w-full h-5 rounded-lg flex items-center justify-center transition-all ${isSel?"ring-1":""}` }
-                      style={{background:dayT.length===0?"#f3f4f6":dayDone===dayT.length?"#22c55e":dayDone>0?"#fbbf24":"#3b82f6"+"44",ringColor:appearance.accentColor}}>
+                    <div className="w-full h-5 rounded-lg flex items-center justify-center transition-all"
+                      style={{background:dayT.length===0?"#f3f4f6":dayDone===dayT.length?"#22c55e":dayDone>0?"#fbbf24":"#3b82f644",outline:isSel?`2px solid ${appearance.accentColor}`:"none"}}>
                       <span className="text-[9px] font-black text-white">{dayT.length>0?dayT.length:""}</span>
                     </div>
                   </button>;
