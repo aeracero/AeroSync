@@ -25,7 +25,7 @@ type InventoryItem = { id:string; name:string; stock:number; total:number; image
 type WikiPage = { id:string; title:string; content:string; category:string; updatedAt:string; author:string; views:number; };
 type ChatMessage = { role:"user"|"assistant"; content:string; ts:number; };
 type Member = { id:string; email:string; display_name:string; avatar_url?:string; discord_id?:string; role_id:string; visual_effect:string; online_at?:string; };
-type DmMessage = { id:string; channel_id:string; sender_id:string; sender_email:string; sender_name:string; sender_avatar?:string; content:string; mentions:string[]; created_at:string; };
+type DmMessage = { id:string; channel_id:string; channel_type:string; sender_id:string; sender_email:string; sender_name:string; sender_avatar?:string; content:string; mentions:string[]; created_at:string; };
 type AppNotification = { id:string; type:string; title:string; body:string; read:boolean; created_at:string; };
 
 type Permission = {
