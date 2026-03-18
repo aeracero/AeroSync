@@ -19,7 +19,7 @@ type Tab = "home"|"schedule"|"inventory"|"wiki"|"members"|"settings";
 type AuthMode = "login"|"signup"|"check_email";
 type SettingsTab = "profile"|"roles"|"appearance"|"notifications"|"privacy"|"data"|"about";
 
-type Task = { id:string; title:string; date:string; description:string; assignees:string[]; openJoin:boolean; color:string; done:boolean; priority:"low"|"medium"|"high"; location?:string; };
+type Task = { id:string; title:string; date:string; description:string; assignees:string[]; openJoin:boolean; color:string; done:boolean; priority:"low"|"medium"|"high"; location?:string; photo?:string; notes?:string; };
 type Availability = { userId:string; name:string; date:string; status:"available"|"maybe"|"unavailable"; note:string; };
 type InventoryItem = { id:string; name:string; stock:number; total:number; image:string; isEmoji:boolean; category:string; };
 type WikiPage = { id:string; title:string; content:string; category:string; updatedAt:string; author:string; views:number; };
@@ -547,6 +547,10 @@ export default function AppShell() {
   },[groupOpen]);
   const [mentionTarget, setMentionTarget] = useState<Member|null>(null);
   const [roleChangeTarget, setRoleChangeTarget] = useState<string|null>(null); // member.id
+  const [taskDetailId, setTaskDetailId] = useState<string|null>(null);
+  const [taskEditDesc, setTaskEditDesc] = useState("");
+  const [taskEditPhoto, setTaskEditPhoto] = useState<string|null>(null);
+  const taskPhotoRef = useRef<HTMLInputElement>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadCount = notifications.filter(n=>!n.read).length;
@@ -554,15 +558,19 @@ export default function AppShell() {
 
   const currentUserEmail = session?.user?.email ?? session?.user?.user_metadata?.full_name ?? "me";
 
-  // Derive permissions from role
-  const myRole = memberRoles.find(m=>m.email===currentUserEmail);
-  const myRoleData = roles.find(r=>r.id===myRole?.roleId) ?? roles.find(r=>r.id==="member")!;
+  // Derive permissions — DB member.role_id is authoritative, local memberRoles is fallback
+  const myMemberRecord = members.find(m=>m.email===currentUserEmail);
+  const myLocalRole = memberRoles.find(m=>m.email===currentUserEmail);
+  // Priority: DB role_id > local memberRoles assignment > "member" default
+  const myEffectiveRoleId = myMemberRecord?.role_id ?? myLocalRole?.roleId ?? "member";
+  const myRoleData = roles.find(r=>r.id===myEffectiveRoleId) ?? roles.find(r=>r.id==="member")!;
   const perms = myRoleData?.permissions ?? DEFAULT_PERMISSIONS;
   const isAdmin = perms.manageTasks || perms.manageInventory || perms.manageWiki;
   const canManageRoles = perms.manageRoles || perms.manageMembers;
-  // noOwner = no one in memberRoles has owner AND no one in members DB has role_id="owner"
-  const noOwner = !memberRoles.some(m=>m.roleId==="owner") && !members.some(m=>m.role_id==="owner");
-  const imAlreadyOwner = myRole?.roleId==="owner" || myRoleData?.id==="owner";
+  // noOwner: only show banner if members are loaded AND truly no owner exists
+  const membersLoaded = members.length > 0;
+  const noOwner = membersLoaded && !members.some(m=>m.role_id==="owner") && !memberRoles.some(m=>m.roleId==="owner");
+  const imAlreadyOwner = myEffectiveRoleId==="owner";
 
   useEffect(() => {
     setIsMounted(true);
@@ -1263,7 +1271,44 @@ export default function AppShell() {
           {perms.manageTasks&&<button onClick={()=>setShowTaskForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> タスク追加</button>}
         </div>
         <CalendarView tasks={tasks} availability={availability} onDayClick={setSelectedDate} selectedDate={selectedDate}/>
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        {/* Weekly AI overview strip */}
+        {(()=>{
+          const weekStart = new Date(selectedDate);
+          weekStart.setDate(weekStart.getDate()-weekStart.getDay());
+          const weekDays = Array.from({length:7},(_,i)=>{const d=new Date(weekStart);d.setDate(d.getDate()+i);return d.toISOString().split("T")[0];});
+          const weekTasks = tasks.filter(t=>weekDays.includes(t.date));
+          const weekDone = weekTasks.filter(t=>t.done).length;
+          const weekRate = weekTasks.length>0?Math.round(weekDone/weekTasks.length*100):0;
+          if(weekTasks.length===0) return null;
+          return (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-black text-gray-700">今週の達成状況</p>
+                <span className="text-xs font-bold" style={{color:weekRate>=70?"#22c55e":weekRate>=40?"#f59e0b":"#ef4444"}}>{weekRate}%</span>
+              </div>
+              <div className="flex gap-1 mb-2">
+                {weekDays.map((day,i)=>{
+                  const dayT=tasks.filter(t=>t.date===day);
+                  const dayDone=dayT.filter(t=>t.done).length;
+                  const isToday=day===new Date().toISOString().split("T")[0];
+                  const isSel=day===selectedDate;
+                  return <button key={day} onClick={()=>setSelectedDate(day)} className="flex-1 flex flex-col items-center gap-0.5">
+                    <span className={`text-[9px] font-bold ${isToday?"text-blue-500":isSel?"text-gray-900":"text-gray-400"}`}>{"日月火水木金土"[i]}</span>
+                    <div className={`w-full h-5 rounded-lg flex items-center justify-center transition-all ${isSel?"ring-1":""}` }
+                      style={{background:dayT.length===0?"#f3f4f6":dayDone===dayT.length?"#22c55e":dayDone>0?"#fbbf24":"#3b82f6"+"44",ringColor:appearance.accentColor}}>
+                      <span className="text-[9px] font-black text-white">{dayT.length>0?dayT.length:""}</span>
+                    </div>
+                  </button>;
+                })}
+              </div>
+              <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-700" style={{width:`${weekRate}%`,background:weekRate>=70?"#22c55e":weekRate>=40?"#f59e0b":"#ef4444"}}/>
+              </div>
+            </div>
+          );
+        })()}
+
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-1.5"><Users size={14} className="text-blue-500"/> {selectedDate} の参加状況</h3>
           <div className="flex gap-2 mb-3">
             {(["available","maybe","unavailable"] as const).map(s=>(
@@ -1274,10 +1319,27 @@ export default function AppShell() {
           {myAvailStatus&&<div className="flex gap-2"><input value={availNote} onChange={e=>setAvailNote(e.target.value)} placeholder="コメント" className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"/><button onClick={async()=>{setAvailability(p=>p.map(a=>a.userId===currentUserEmail&&a.date===selectedDate?{...a,note:availNote}:a));try{const sb=createClient();const{data:{user}}=await sb.auth.getUser();if(user)await sb.from('availability').update({note:availNote}).eq('user_id',user.id).eq('date',selectedDate);}catch(e){console.log('note sync err',e);}}} className="bg-blue-100 text-blue-700 text-xs font-bold px-3 rounded-xl">保存</button></div>}
           {selectedAvail.length>0&&<div className="mt-3 space-y-1.5">{selectedAvail.map(a=><div key={a.userId} className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full" style={{background:AVAIL_COLORS[a.status]}}/><span className="font-medium text-gray-700 truncate flex-1">{a.name}</span><span style={{color:AVAIL_COLORS[a.status]}} className="font-bold">{AVAIL_LABELS[a.status]}</span>{a.note&&<span className="text-gray-400 truncate max-w-[80px]">{a.note}</span>}</div>)}</div>}
         </div>
-        <h3 className="text-sm font-bold text-gray-500">{selectedDate} のタスク</h3>
+        {/* AI schedule insight */}
+        {tasks.filter(t=>t.date===selectedDate).length>0&&(
+          <button onClick={async()=>{
+            const dayTasks=tasks.filter(t=>t.date===selectedDate);
+            const q=`${selectedDate}の予定: ${dayTasks.map(t=>`「${t.title}」(${t.priority}優先度${t.done?"・完了":""})`).join(", ")}。この予定に対してアドバイスや注意点を簡潔に教えてください。`;
+            setChatInput(q);setChatOpen(true);
+          }} className="w-full bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl p-3 flex items-center gap-3 text-left hover:from-blue-100 hover:to-indigo-100 transition-all active:scale-[0.99]">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{background:appearance.accentColor}}><Sparkles size={14} className="text-white"/></div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-black text-gray-800">AIに今日のアドバイスを聞く</p>
+              <p className="text-[10px] text-gray-500 truncate">{tasks.filter(t=>t.date===selectedDate).length}件の予定を分析 →</p>
+            </div>
+          </button>
+        )}
+
+                <h3 className="text-sm font-bold text-gray-500">{selectedDate} のタスク</h3>
         {selectedTasks.length===0?<div className="text-center py-8 text-gray-400 text-sm bg-white rounded-2xl border border-gray-100">この日はタスクがありません</div>
           :<div className="space-y-2">{selectedTasks.map(task=>(
-            <div key={task.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all ${task.done?"opacity-55":""} ${fadeIn}`} style={{borderColor:task.color+"44",borderLeftWidth:3,borderLeftColor:task.color}}>
+            <div key={task.id} onClick={()=>{setTaskDetailId(task.id);setTaskEditDesc(task.notes||"");setTaskEditPhoto(task.photo||null);}}
+              className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all cursor-pointer hover:shadow-md active:scale-[0.99] ${task.done?"opacity-60":""} ${fadeIn}`}
+              style={{borderColor:task.color+"44",borderLeftWidth:3,borderLeftColor:task.color}}>
               <div className="p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
@@ -1285,23 +1347,118 @@ export default function AppShell() {
                       <span className={`text-sm font-bold ${task.done?"line-through text-gray-400":"text-gray-900"}`}>{task.title}</span>
                       <Pill color={task.color}>{task.priority==="high"?"🔥高":task.priority==="medium"?"⚡中":"🌿低"}</Pill>
                       {task.assignees.includes(currentUserEmail)&&<Pill color={task.color}>担当</Pill>}
+                      {task.photo&&<span className="text-[10px]">📷</span>}
                     </div>
-                    {task.description&&<p className="text-xs text-gray-500 line-clamp-2">{task.description}</p>}
+                    {task.description&&<p className="text-xs text-gray-500 line-clamp-1">{task.description}</p>}
+                    {task.notes&&<p className="text-xs line-clamp-1 mt-0.5" style={{color:task.color}}>📝 {task.notes}</p>}
                     {task.location&&<div className="flex items-center gap-1 mt-1"><MapPin size={10} className="text-gray-400"/><span className="text-[10px] text-gray-400">{task.location}</span></div>}
+                    {task.assignees.length>0&&<p className="text-[10px] text-gray-400 mt-0.5">👤 {task.assignees.length}人担当</p>}
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={async()=>{const newDone=!task.done;setTasks(p=>p.map(t=>t.id===task.id?{...t,done:newDone}:t));try{const sb=createClient();await sb.from('tasks').update({done:newDone}).eq('id',task.id);}catch(e){console.log('done sync err',e);}}} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.done?"border-green-500":"border-gray-300 hover:border-green-400"}`} style={task.done?{background:"#22c55e"}:{}}>
-                      {task.done&&<Check size={12} className="text-white"/>}
+                  <div className="flex items-center gap-1 shrink-0" onClick={e=>e.stopPropagation()}>
+                    <button onClick={async(e)=>{e.stopPropagation();const nd=!task.done;setTasks(p=>p.map(t=>t.id===task.id?{...t,done:nd}:t));try{const sb=createClient();await sb.from('tasks').update({done:nd}).eq('id',task.id);}catch(er){console.log('done err',er);}}}
+                      className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${task.done?"":"border-gray-200 hover:border-green-400"}`}
+                      style={task.done?{background:"#22c55e",borderColor:"#22c55e"}:{}}>
+                      {task.done&&<Check size={13} className="text-white"/>}
                     </button>
-                    {perms.manageTasks&&<button onClick={async()=>{setTasks(p=>p.filter(t=>t.id!==task.id));try{const sb=createClient();await sb.from("tasks").delete().eq("id",task.id);}catch(e){console.log("delete task err",e);}}} className="p-1 text-gray-300 hover:text-red-400 transition-colors"><Trash2 size={14}/></button>}
+                    {perms.manageTasks&&<button onClick={async(e)=>{e.stopPropagation();setTasks(p=>p.filter(t=>t.id!==task.id));try{const sb=createClient();await sb.from("tasks").delete().eq("id",task.id);}catch(er){console.log("del err",er);}}} className="p-1 text-gray-200 hover:text-red-400 transition-colors"><Trash2 size={13}/></button>}
                   </div>
                 </div>
-                {task.openJoin&&!task.assignees.includes(currentUserEmail)&&<button onClick={async()=>{const newA=[...task.assignees,currentUserEmail];setTasks(p=>p.map(t=>t.id===task.id?{...t,assignees:newA}:t));try{const sb=createClient();await sb.from('tasks').update({assignees:newA}).eq('id',task.id);}catch(e){console.log('join sync err',e);}}} className="mt-2 w-full py-1.5 rounded-xl text-xs font-bold text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 transition-colors flex items-center justify-center gap-1"><UserPlus size={12}/> タスクに参加</button>}
+                {task.openJoin&&!task.assignees.includes(currentUserEmail)&&(
+                  <button onClick={async(e)=>{e.stopPropagation();const na=[...task.assignees,currentUserEmail];setTasks(p=>p.map(t=>t.id===task.id?{...t,assignees:na}:t));try{const sb=createClient();await sb.from('tasks').update({assignees:na}).eq('id',task.id);}catch(er){console.log('join err',er);}}}
+                    className="mt-2 w-full py-1.5 rounded-xl text-xs font-bold text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 transition-colors flex items-center justify-center gap-1">
+                    <UserPlus size={12}/> タスクに参加
+                  </button>
+                )}
               </div>
             </div>
           ))}</div>
         }
-        {showTaskForm&&(
+        {/* Task detail modal */}
+        {taskDetailId&&(()=>{
+          const task = tasks.find(t=>t.id===taskDetailId);
+          if(!task) return null;
+          const role = roles.find(r=>r.id===myEffectiveRoleId);
+          return (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setTaskDetailId(null)}>
+              <div className={`bg-white w-full rounded-t-3xl max-h-[90vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
+                <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mt-3"/>
+                {/* Header */}
+                <div className="px-5 py-4 border-b border-gray-100" style={{borderLeftWidth:4,borderLeftColor:task.color}}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <h3 className="font-black text-gray-900 text-lg">{task.title}</h3>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <Pill color={task.color}>{task.priority==="high"?"🔥 高優先度":task.priority==="medium"?"⚡ 中優先度":"🌿 低優先度"}</Pill>
+                        {task.date&&<span className="text-xs text-gray-400">📅 {task.date}</span>}
+                        {task.location&&<span className="text-xs text-gray-400">📍 {task.location}</span>}
+                      </div>
+                    </div>
+                    <button onClick={async()=>{const nd=!task.done;setTasks(p=>p.map(t=>t.id===task.id?{...t,done:nd}:t));try{const sb=createClient();await sb.from('tasks').update({done:nd}).eq('id',task.id);}catch(er){console.log(er);}}}
+                      className="w-10 h-10 rounded-2xl border-2 flex items-center justify-center transition-all shrink-0"
+                      style={task.done?{background:"#22c55e",borderColor:"#22c55e"}:{borderColor:task.color}}>
+                      {task.done?<Check size={18} className="text-white"/>:<span className="text-xs font-bold" style={{color:task.color}}>完了</span>}
+                    </button>
+                  </div>
+                </div>
+                <div className="p-5 space-y-4">
+                  {/* Description */}
+                  {task.description&&(
+                    <div className="bg-gray-50 rounded-2xl p-3">
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">説明</p>
+                      <p className="text-sm text-gray-700 leading-relaxed">{task.description}</p>
+                    </div>
+                  )}
+                  {/* Photo */}
+                  {task.photo&&<img src={task.photo} alt="task" className="w-full rounded-2xl object-cover max-h-48"/>}
+                  {/* Notes — editable by anyone */}
+                  <div>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">メモ・進捗報告</p>
+                    <textarea value={taskEditDesc} onChange={e=>setTaskEditDesc(e.target.value)} rows={3} placeholder="ここに進捗・メモを書く..."
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 resize-none" style={{"--tw-ring-color":task.color} as any}/>
+                  </div>
+                  {/* Photo upload */}
+                  <div>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">写真を追加</p>
+                    <button onClick={()=>taskPhotoRef.current?.click()}
+                      className="w-full h-24 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center gap-1.5 hover:border-blue-300 hover:bg-blue-50 transition-colors overflow-hidden">
+                      {taskEditPhoto?<img src={taskEditPhoto} alt="" className="w-full h-full object-cover"/>:<><ImageIcon size={20} className="text-gray-300"/><span className="text-xs text-gray-400">写真を追加</span></>}
+                    </button>
+                    <input ref={taskPhotoRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>setTaskEditPhoto(r.result as string);r.readAsDataURL(f);}}/>
+                    {taskEditPhoto&&<button onClick={()=>setTaskEditPhoto(null)} className="text-xs text-red-500 mt-1">削除</button>}
+                  </div>
+                  {/* Assignees */}
+                  {task.assignees.length>0&&(
+                    <div>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">担当メンバー</p>
+                      <div className="flex flex-wrap gap-2">
+                        {task.assignees.map(a=>{
+                          const m=members.find(x=>x.email===a);
+                          return <div key={a} className="flex items-center gap-1.5 bg-gray-100 rounded-xl px-2.5 py-1.5">
+                            {m?.avatar_url?<img src={m.avatar_url} alt="" className="w-5 h-5 rounded-full"/>:<div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white" style={{background:task.color}}>{a.charAt(0).toUpperCase()}</div>}
+                            <span className="text-xs font-medium text-gray-700">{m?.display_name||a.split("@")[0]}</span>
+                          </div>;
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {/* Save button */}
+                  <div className="flex gap-2 pt-2">
+                    <button onClick={async()=>{
+                      setTasks(p=>p.map(t=>t.id===task.id?{...t,notes:taskEditDesc,photo:taskEditPhoto||undefined}:t));
+                      setTaskDetailId(null);
+                      try{const sb=createClient();await sb.from('tasks').update({notes:taskEditDesc,photo:taskEditPhoto}).eq('id',task.id);}catch(er){console.log('save err',er);}
+                    }} className="flex-1 text-white font-bold py-3 rounded-2xl text-sm transition-all active:scale-[0.98]" style={{background:task.color}}>
+                      保存して閉じる
+                    </button>
+                    {perms.manageTasks&&<button onClick={async()=>{setTasks(p=>p.filter(t=>t.id!==task.id));setTaskDetailId(null);try{const sb=createClient();await sb.from("tasks").delete().eq("id",task.id);}catch(er){console.log(er);}}} className="w-12 bg-red-50 text-red-500 font-bold py-3 rounded-2xl text-sm hover:bg-red-100 transition-all flex items-center justify-center"><Trash2 size={15}/></button>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+                {showTaskForm&&(
           <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setShowTaskForm(false)}>
             <div className={`bg-white w-full rounded-t-3xl p-6 space-y-3 max-h-[90vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
               <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto"/>
@@ -1728,6 +1885,8 @@ export default function AppShell() {
                               <button onClick={()=>{
                                 if(claimOwnerCode==="AEROSYNC"){
                                   setMemberRoles(p=>[...p.filter(m=>m.email!==currentUserEmail),{email:currentUserEmail,roleId:"owner",assignedAt:new Date().toISOString().split("T")[0],assignedBy:"system"}]);
+                                  // Also update members table in DB
+                                  (async()=>{try{const sb=createClient();if(myMemberRecord?.id){await sb.from("members").update({role_id:"owner"}).eq("id",myMemberRecord.id);setMembers(p=>p.map(m=>m.email===currentUserEmail?{...m,role_id:"owner"}:m));}}catch(e){console.log("owner claim err",e);}})();
                                   setShowClaimOwner(false); setClaimOwnerCode("");
                                 } else {
                                   setClaimOwnerError("コードが正しくありません");
