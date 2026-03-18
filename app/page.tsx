@@ -541,7 +541,14 @@ export default function AppShell() {
       const supabase=createClient();
       const {data}=await supabase.from("messages").select("*").eq("channel_id","general").order("created_at",{ascending:true}).limit(100);
       if(data)setGroupMessages(data as DmMessage[]);
-      supabase.channel("general_msgs").on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.general`},(p)=>{setGroupMessages(prev=>[...prev,p.new as DmMessage]);}).subscribe();
+      supabase.channel("general_msgs").on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.general`},(p)=>{
+      const incoming = p.new as DmMessage;
+      setGroupMessages(prev=>{
+        const isDupe = prev.some(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content&&Math.abs(new Date(m.created_at).getTime()-new Date(incoming.created_at).getTime())<5000);
+        if(isDupe) return prev.map(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content?{...m,id:incoming.id}:m);
+        return [...prev,incoming];
+      });
+    }).subscribe();
     };
     load();
   },[groupOpen]);
@@ -890,7 +897,13 @@ export default function AppShell() {
       const {data}=await supabase.from("messages").select("*").eq("channel_id",channelId).order("created_at",{ascending:true}).limit(50);
       if(data) setDmMessages(data as DmMessage[]);
       supabase.channel(`dm_${channelId.replace(/:/g,"_")}`).on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.${channelId}`},(p)=>{
-        setDmMessages(prev=>[...prev,p.new as DmMessage]);
+        const incoming = p.new as DmMessage;
+        // Skip if this is our own message (already added optimistically)
+        setDmMessages(prev=>{
+          const isDuplicate = prev.some(m=>m.sender_id===incoming.sender_id && m.content===incoming.content && Math.abs(new Date(m.created_at).getTime()-new Date(incoming.created_at).getTime())<5000);
+          if(isDuplicate) return prev.map(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content?{...m,id:incoming.id,created_at:incoming.created_at}:m);
+          return [...prev, incoming];
+        });
       }).subscribe();
     } catch(e){console.log("DM load error:",e);}
   };
@@ -1597,8 +1610,8 @@ export default function AppShell() {
               </div>
             );
             return allMembers.map(member=>{
-              const localAssignment = memberRoles.find(mr=>mr.email===member.email);
-              const effectiveRoleId = localAssignment?.roleId ?? member.role_id ?? "member";
+              // DB role_id is always authoritative — never trust local memberRoles for display
+              const effectiveRoleId = member.role_id ?? "member";
               const role = roles.find(r=>r.id===effectiveRoleId) ?? roles.find(r=>r.id==="member")!;
             const isOnline = member.online_at && (Date.now()-new Date(member.online_at).getTime()) < 5*60*1000;
             const isMe = member.email === currentUserEmail;
@@ -1725,7 +1738,7 @@ export default function AppShell() {
                 <div ref={dmEndRef}/>
               </div>
               <div className="p-3 bg-white border-t border-gray-100 flex gap-2 shrink-0">
-                <textarea value={dmInput} onChange={e=>setDmInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendDm();}}} placeholder="メッセージを送信... (Shift+Enterで改行)" rows={1} className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{maxHeight:"80px",overflowY:"auto"}}/>
+                <textarea value={dmInput} onChange={e=>setDmInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();sendDm();}}} placeholder="メッセージを送信... (Enterで送信 / Shift+Enterで改行)" rows={1} className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{maxHeight:"80px",overflowY:"auto"}}/>
                 <button onClick={sendDm} disabled={!dmInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95" style={{background:appearance.accentColor}}><Send size={14}/></button>
               </div>
             </div>
@@ -1778,7 +1791,7 @@ export default function AppShell() {
                     <AtSign size={14}/>
                   </button>
                 )}
-                <textarea value={groupInput} onChange={e=>setGroupInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendGroupMessage(mentionTarget??undefined);}}} placeholder="全員へメッセージ... (Shift+Enterで改行)" rows={1} className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{maxHeight:"80px",overflowY:"auto"}}/>
+                <textarea value={groupInput} onChange={e=>setGroupInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();sendGroupMessage(mentionTarget??undefined);}}} placeholder="全員へメッセージ... (Enterで送信 / Shift+Enterで改行)" rows={1} className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{maxHeight:"80px",overflowY:"auto"}}/>
                 <button onClick={()=>sendGroupMessage(mentionTarget??undefined)} disabled={!groupInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95" style={{background:appearance.accentColor}}><Send size={14}/></button>
               </div>
             </div>
@@ -2190,7 +2203,7 @@ export default function AppShell() {
               <div ref={chatEndRef}/>
             </div>
             <div className="p-3 bg-white border-t border-gray-100 flex gap-2 shrink-0">
-              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat();}}} placeholder="メッセージを入力..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{"--tw-ring-color":appearance.accentColor} as any}/>
+              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();sendChat();}}} placeholder="メッセージを入力..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{"--tw-ring-color":appearance.accentColor} as any}/>
               <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95 shadow-sm" style={{background:appearance.accentColor}}>
                 <Send size={14}/>
               </button>
