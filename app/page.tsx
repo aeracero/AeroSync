@@ -1849,7 +1849,7 @@ export default function AppShell() {
       <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-gray-100 z-30" style={{paddingBottom:"env(safe-area-inset-bottom)"}}>
         <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
           {([{id:"home",Icon:Home,label:"ホーム"},{id:"schedule",Icon:Calendar,label:"予定"},{id:"inventory",Icon:Package,label:"在庫"},{id:"members",Icon:Users,label:"メンバー"},{id:"settings",Icon:Settings,label:"設定"}] as const).map(({id,Icon,label})=>(
-            <button key={id} onClick={()=>{setActiveTab(id);if(id!=='wiki')setActiveWiki(null);}} className="flex flex-col items-center justify-center w-full h-full gap-0.5 transition-all duration-200" style={{color:activeTab===id?appearance.accentColor:"#9ca3af"}}>
+            <button key={id} onClick={()=>{setActiveTab(id);setActiveWiki(null);}} className="flex flex-col items-center justify-center w-full h-full gap-0.5 transition-all duration-200" style={{color:activeTab===id?appearance.accentColor:"#9ca3af"}}>
               <div className="p-1.5 rounded-xl transition-all duration-200" style={activeTab===id?{background:appearance.accentColor+"22"}:{}}>
                 <Icon size={20} strokeWidth={activeTab===id?2.5:1.8}/>
               </div>
