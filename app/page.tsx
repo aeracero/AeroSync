@@ -716,7 +716,12 @@ export default function AppShell() {
 
     const membersSub = supabase.channel("members_changes")
       .on("postgres_changes",{event:"*",schema:"public",table:"members"},(payload)=>{
-        if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") setMembers(p=>{const idx=p.findIndex(m=>m.id===payload.new.id);return idx>=0?p.map((m,i)=>i===idx?{...m,...payload.new}:m):[...p,payload.new as Member];});
+        if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") {
+          const updated = payload.new as Member;
+          setMembers(p=>{const idx=p.findIndex(m=>m.id===updated.id);return idx>=0?p.map((m,i)=>i===idx?{...m,...updated}:m):[...p,updated];});
+          // Also sync memberRoles local state so role display updates immediately
+          if(updated.role_id) setMemberRoles(p=>[...p.filter(mr=>mr.email!==updated.email),{email:updated.email||"",roleId:updated.role_id,assignedAt:new Date().toISOString().split("T")[0],assignedBy:"sync"}]);
+        }
       }).subscribe();
 
     const notifSub = supabase.channel("notif_changes")
@@ -838,7 +843,14 @@ export default function AppShell() {
     try {
       const res=await fetch("/api/gemini",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:[...chatMessages,userMsg],context})});
       const data=await res.json();
-      setChatMessages(prev=>[...prev,{role:"assistant",content:data.reply||data.error||"エラーが発生しました",ts:Date.now()}]);
+      const reply = data.reply || data.error || "エラーが発生しました";
+      const sources: string[] = data.sources ?? [];
+      const fullReply = sources.length > 0
+        ? reply + `
+
+🔍 参照: ${sources.slice(0,2).join(', ')}`
+        : reply;
+      setChatMessages(prev=>[...prev,{role:"assistant",content:fullReply,ts:Date.now()}]);
     } catch { setChatMessages(prev=>[...prev,{role:"assistant",content:"接続エラーが発生しました",ts:Date.now()}]); }
     finally { setChatLoading(false); }
   };
@@ -886,8 +898,9 @@ export default function AppShell() {
     setGroupInput("");setMentionTarget(null);
     try {
       await supabase.from("messages").insert({channel_id:"general",channel_type:"group",sender_id:user.id,sender_email:user.email,sender_name:user.user_metadata?.full_name||user.email,content:msg.content,mentions});
+      // Notify mentioned member (Discord DM + in-app)
       if(mentionMember){
-        await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"mention",targetUserId:mentionMember.id,targetDiscordId:mentionMember.discord_id,message:{title:`🔔 @${user.user_metadata?.full_name||user.email}からメンション`,body:msg.content,data:{}}})});
+        await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"mention",targetUserId:mentionMember.id,targetDiscordId:mentionMember.discord_id,channelId:process.env.NEXT_PUBLIC_DISCORD_CHANNEL_ID,message:{title:`🔔 @${user.user_metadata?.full_name||user.email}からメンション`,body:msg.content,data:{}}})});
       }
     } catch(e){console.log("Group msg error:",e);}
   };
@@ -1258,7 +1271,9 @@ export default function AppShell() {
                 className="flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95">{AVAIL_LABELS[s]}</button>
             ))}
           </div>
-          {myAvailStatus&&<div className="flex gap-2"><input value={availNote} onChange={e=>setAvailNote(e.target.value)} placeholder="コメント" className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"/><button onClick={()=>setAvailability(p=>p.map(a=>a.userId===currentUserEmail&&a.date===selectedDate?{...a,note:availNote}:a))} className="bg-blue-100 text-blue-700 text-xs font-bold px-3 rounded-xl">保存</button></div>}
+          {myAvailStatus&&<div className="flex gap-2"><input value={availNote} onChange={e=>setAvailNote(e.target.value)} placeholder="コメント" className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"/><button onClick={()=>setAvailability(p=>p.map(a=>a.userId===currentUserEmail&&a.date===selectedDate?{...a,note:availNote}:a))};
+            try{const sb=createClient();const{data:{user}}=await sb.auth.getUser();if(user)await sb.from('availability').update({note:availNote}).eq('user_id',user.id).eq('date',selectedDate);}catch(e){console.log('note sync err',e);}
+          }} className="bg-blue-100 text-blue-700 text-xs font-bold px-3 rounded-xl">保存</button></div>}
           {selectedAvail.length>0&&<div className="mt-3 space-y-1.5">{selectedAvail.map(a=><div key={a.userId} className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full" style={{background:AVAIL_COLORS[a.status]}}/><span className="font-medium text-gray-700 truncate flex-1">{a.name}</span><span style={{color:AVAIL_COLORS[a.status]}} className="font-bold">{AVAIL_LABELS[a.status]}</span>{a.note&&<span className="text-gray-400 truncate max-w-[80px]">{a.note}</span>}</div>)}</div>}
         </div>
         <h3 className="text-sm font-bold text-gray-500">{selectedDate} のタスク</h3>
@@ -1277,13 +1292,13 @@ export default function AppShell() {
                     {task.location&&<div className="flex items-center gap-1 mt-1"><MapPin size={10} className="text-gray-400"/><span className="text-[10px] text-gray-400">{task.location}</span></div>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={async()=>{const newDone=!task.done;setTasks(p=>p.map(t=>t.id===task.id?{...t,done:newDone}:t));try{const sb=createClient();await sb.from('tasks').update({done:newDone}).eq('id',task.id);}catch(e){console.log('toggle done err',e);}}} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.done?"border-green-500":"border-gray-300 hover:border-green-400"}`} style={task.done?{background:"#22c55e"}:{}}>
+                    <button onClick={async()=>{const newDone=!task.done;setTasks(p=>p.map(t=>t.id===task.id?{...t,done:newDone}:t));try{const sb=createClient();await sb.from('tasks').update({done:newDone}).eq('id',task.id);}catch(e){console.log('done sync err',e);}}} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${task.done?"border-green-500":"border-gray-300 hover:border-green-400"}`} style={task.done?{background:"#22c55e"}:{}}>
                       {task.done&&<Check size={12} className="text-white"/>}
                     </button>
                     {perms.manageTasks&&<button onClick={async()=>{setTasks(p=>p.filter(t=>t.id!==task.id));try{const sb=createClient();await sb.from("tasks").delete().eq("id",task.id);}catch(e){console.log("delete task err",e);}}} className="p-1 text-gray-300 hover:text-red-400 transition-colors"><Trash2 size={14}/></button>}
                   </div>
                 </div>
-                {task.openJoin&&!task.assignees.includes(currentUserEmail)&&<button onClick={()=>setTasks(p=>p.map(t=>t.id===task.id?{...t,assignees:[...t.assignees,currentUserEmail]}:t))} className="mt-2 w-full py-1.5 rounded-xl text-xs font-bold text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 transition-colors flex items-center justify-center gap-1"><UserPlus size={12}/> タスクに参加</button>}
+                {task.openJoin&&!task.assignees.includes(currentUserEmail)&&<button onClick={async()=>{const newA=[...task.assignees,currentUserEmail];setTasks(p=>p.map(t=>t.id===task.id?{...t,assignees:newA}:t));try{const sb=createClient();await sb.from('tasks').update({assignees:newA}).eq('id',task.id);}catch(e){console.log('join sync err',e);}}} className="mt-2 w-full py-1.5 rounded-xl text-xs font-bold text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 transition-colors flex items-center justify-center gap-1"><UserPlus size={12}/> タスクに参加</button>}
               </div>
             </div>
           ))}</div>
@@ -1494,10 +1509,12 @@ export default function AppShell() {
                           setMemberRoles(p=>[...p.filter(mr=>mr.email!==member.email),{email:member.email||"",roleId:r.id,assignedAt:new Date().toISOString().split("T")[0],assignedBy:currentUserEmail}]);
                           setMembers(p=>p.map(m=>m.id===member.id?{...m,role_id:r.id}:m));
                           setRoleChangeTarget(null);
-                          // Sync to Supabase
+                          // Sync to Supabase — update role_id in members table
+                          // Other clients receive via membersSub realtime channel
                           try {
                             const sb=createClient();
-                            await sb.from("members").update({role_id:r.id}).eq("id",member.id);
+                            const {error} = await sb.from("members").update({role_id:r.id}).eq("id",member.id);
+                            if(error) console.error("role update err:", error);
                           } catch(e){console.log("role update err",e);}
                         }}
                           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border-2 transition-all active:scale-95 ${effectiveRoleId===r.id?"border-opacity-100":"border-opacity-20 opacity-60 hover:opacity-100"}`}
@@ -1538,8 +1555,14 @@ export default function AppShell() {
                   return (
                     <div key={i} className={`flex gap-2 ${isMe?"flex-row-reverse":""}`}>
                       <div className="w-6 h-6 rounded-lg bg-gray-200 flex items-center justify-center shrink-0 text-xs font-bold text-gray-600">{(m.sender_name||"?").charAt(0).toUpperCase()}</div>
-                      <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${isMe?"text-white rounded-tr-sm":"bg-white border border-gray-100 text-gray-800 shadow-sm rounded-tl-sm"}`} style={isMe?{background:appearance.accentColor}:{}}>
-                        {m.content}
+                      <div>
+                        <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${isMe?"rounded-tr-sm":"bg-white border border-gray-100 text-gray-800 shadow-sm rounded-tl-sm"}`}
+                          style={isMe?{background:appearance.accentColor,color:"#ffffff"}:{color:"#1f2937"}}>
+                          {m.content}
+                        </div>
+                        <p className={`text-[9px] text-gray-400 mt-0.5 ${isMe?"text-right":"text-left"} px-1`}>
+                          {new Date(m.created_at).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}
+                        </p>
                       </div>
                     </div>
                   );
@@ -1547,8 +1570,8 @@ export default function AppShell() {
                 <div ref={dmEndRef}/>
               </div>
               <div className="p-3 bg-white border-t border-gray-100 flex gap-2 shrink-0">
-                <input value={dmInput} onChange={e=>setDmInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendDm()} placeholder="メッセージを送信..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition"/>
-                <button onClick={sendDm} disabled={dmLoading||!dmInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95" style={{background:appearance.accentColor}}><Send size={14}/></button>
+                <textarea value={dmInput} onChange={e=>setDmInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendDm();}}} placeholder="メッセージを送信... (Shift+Enterで改行)" rows={1} className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{maxHeight:"80px",overflowY:"auto"}}/>
+                <button onClick={sendDm} disabled={!dmInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95" style={{background:appearance.accentColor}}><Send size={14}/></button>
               </div>
             </div>
           </div>
@@ -1573,7 +1596,8 @@ export default function AppShell() {
                       <div className="w-6 h-6 rounded-lg bg-gray-200 flex items-center justify-center shrink-0 text-xs font-bold text-gray-600">{(m.sender_name||"?").charAt(0).toUpperCase()}</div>
                       <div>
                         {!isMe&&<p className="text-[10px] text-gray-400 mb-0.5 ml-1">{m.sender_name}</p>}
-                        <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${isMe?"text-white rounded-tr-sm":"bg-white border border-gray-100 text-gray-800 shadow-sm rounded-tl-sm"}`} style={isMe?{background:appearance.accentColor}:{}}>
+                        <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${isMe?"rounded-tr-sm":"bg-white border border-gray-100 shadow-sm rounded-tl-sm"}`}
+                          style={isMe?{background:appearance.accentColor,color:"#ffffff"}:{color:"#1f2937"}}>
                           {m.content}
                         </div>
                       </div>
@@ -1599,7 +1623,7 @@ export default function AppShell() {
                     <AtSign size={14}/>
                   </button>
                 )}
-                <input value={groupInput} onChange={e=>setGroupInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendGroupMessage(mentionTarget??undefined)} placeholder="全員へメッセージ..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition"/>
+                <textarea value={groupInput} onChange={e=>setGroupInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendGroupMessage(mentionTarget??undefined);}}} placeholder="全員へメッセージ... (Shift+Enterで改行)" rows={1} className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{maxHeight:"80px",overflowY:"auto"}}/>
                 <button onClick={()=>sendGroupMessage(mentionTarget??undefined)} disabled={!groupInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95" style={{background:appearance.accentColor}}><Send size={14}/></button>
               </div>
             </div>
@@ -1971,7 +1995,7 @@ export default function AppShell() {
           <div className="relative pointer-events-auto w-full max-w-sm mx-auto mb-0 sm:mb-6 sm:mr-6 bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-blue-100" style={{height:"72vh",maxHeight:"600px",animation:"scaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1)"}}>
             <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 shrink-0" style={{background:`linear-gradient(135deg, ${appearance.accentColor}, ${appearance.accentColor}cc)`}}>
               <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center"><Sparkles size={16} className="text-white"/></div>
-              <div className="flex-1"><p className="text-sm font-black text-white">AeroSync AI</p><p className="text-[10px] text-white/70">Powered by Gemini</p></div>
+              <div className="flex-1"><p className="text-sm font-black text-white">AeroSync AI</p><p className="text-[10px] text-white/70">Gemini 2.5 Pro ✦ 検索対応</p></div>
               <button onClick={()=>setChatOpen(false)} className="w-7 h-7 bg-white/20 rounded-lg flex items-center justify-center hover:bg-white/30 transition-colors"><X size={14} className="text-white"/></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/50">
@@ -1993,7 +2017,7 @@ export default function AppShell() {
                   <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={m.role==="assistant"?{background:appearance.accentColor}:{background:"#e5e7eb"}}>
                     {m.role==="assistant"?<Bot size={12} className="text-white"/>:<span className="text-[10px] font-bold text-gray-600">{displayName.charAt(0).toUpperCase()}</span>}
                   </div>
-                  <div className={`max-w-[82%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${m.role==="user"?"text-white rounded-tr-sm":"bg-white border border-gray-100 text-gray-800 shadow-sm rounded-tl-sm"}`} style={m.role==="user"?{background:appearance.accentColor}:{}}>
+                  <div className={`max-w-[82%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${m.role==="user"?"rounded-tr-sm":"bg-white border border-gray-100 shadow-sm rounded-tl-sm"}`} style={m.role==="user"?{background:appearance.accentColor,color:"#ffffff"}:{color:"#1f2937"}}>
                     {m.content}
                   </div>
                 </div>
@@ -2009,7 +2033,7 @@ export default function AppShell() {
               <div ref={chatEndRef}/>
             </div>
             <div className="p-3 bg-white border-t border-gray-100 flex gap-2 shrink-0">
-              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendChat()} placeholder="メッセージを入力..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition" style={{"--tw-ring-color":appearance.accentColor} as any}/>
+              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat();}}} placeholder="メッセージを入力..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{"--tw-ring-color":appearance.accentColor} as any}/>
               <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95 shadow-sm" style={{background:appearance.accentColor}}>
                 <Send size={14}/>
               </button>
