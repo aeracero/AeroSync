@@ -98,9 +98,7 @@ function saveLS(k:string, v:unknown) { try { localStorage.setItem(k,JSON.stringi
 function registerSW(onUpdate?: () => void) {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   navigator.serviceWorker.register("/sw.js").then(reg => {
-    // Check for updates every 60 seconds
     setInterval(() => reg.update(), 60_000);
-    // New SW waiting = update available
     reg.addEventListener("updatefound", () => {
       const newSW = reg.installing;
       if (!newSW) return;
@@ -111,11 +109,9 @@ function registerSW(onUpdate?: () => void) {
       });
     });
   }).catch(() => {});
-  // Listen for the SW_UPDATED message — triggers full reload
   navigator.serviceWorker.addEventListener("message", (e) => {
     if (e.data?.type === "SW_UPDATED") onUpdate?.();
   });
-  // When a new SW takes control, reload the page automatically
   let refreshing = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (!refreshing) { refreshing = true; window.location.reload(); }
@@ -535,6 +531,7 @@ export default function AppShell() {
   const [groupMessages, setGroupMessages] = useState<DmMessage[]>([]);
   const [groupInput, setGroupInput] = useState("");
   const [groupOpen, setGroupOpen] = useState(false);
+
   useEffect(()=>{
     if(!groupOpen)return;
     const load=async()=>{
@@ -552,6 +549,7 @@ export default function AppShell() {
     };
     load();
   },[groupOpen]);
+
   const [mentionTarget, setMentionTarget] = useState<Member|null>(null);
   const [roleChangeTarget, setRoleChangeTarget] = useState<string|null>(null); // member.id
   const [taskDetailId, setTaskDetailId] = useState<string|null>(null);
@@ -628,14 +626,11 @@ export default function AppShell() {
     setNotifEnabled(typeof Notification!=="undefined"&&Notification.permission==="granted");
 
     // ── Supabase realtime subscriptions ──────────────────────────────────────
-    // Fetch initial data from Supabase (fallback to localStorage already loaded above)
     const initSupabase = async () => {
       try {
-        // Load members
         const { data: membersData } = await supabase.from("members").select("*").order("created_at");
         if (membersData) setMembers(membersData);
 
-        // Load tasks
         const { data: tasksData } = await supabase.from("tasks").select("*").order("date");
         if (tasksData && tasksData.length > 0) setTasks(tasksData.map((t:any)=>({
           id:t.id, title:t.title, date:t.date, description:t.description||"",
@@ -643,14 +638,12 @@ export default function AppShell() {
           done:t.done, priority:t.priority, location:t.location||""
         })));
 
-        // Load inventory
         const { data: invData } = await supabase.from("inventory").select("*").order("created_at");
         if (invData && invData.length > 0) setInventory(invData.map((i:any)=>({
           id:i.id, name:i.name, stock:i.stock, total:i.total,
           image:i.image||"📦", isEmoji:i.is_emoji, category:i.category
         })));
 
-        // Load wiki
         const { data: wikiData } = await supabase.from("wiki_pages").select("*").order("updated_at", {ascending:false});
         if (wikiData && wikiData.length > 0) setWikis(wikiData.map((w:any)=>({
           id:w.id, title:w.title, content:w.content, category:w.category,
@@ -658,17 +651,14 @@ export default function AppShell() {
           author:w.author||"", views:w.views||0
         })));
 
-        // Load availability
         const { data: availData } = await supabase.from("availability").select("*");
         if (availData) setAvailability(availData.map((a:any)=>({
           userId:a.user_id, name:a.user_email||a.user_id, date:a.date, status:a.status, note:a.note||""
         })));
 
-        // Load notifications for current user
         const { data: notifData } = await supabase.from("notifications").select("*").order("created_at",{ascending:false}).limit(50);
         if (notifData) setNotifications(notifData);
 
-        // Load roles from DB
         const { data: rolesData } = await supabase.from("roles").select("*");
         if (rolesData && rolesData.length > 0) setRoles(rolesData.map((r:any)=>({
           id:r.id, name:r.name, color:r.color, icon:r.icon,
@@ -676,7 +666,6 @@ export default function AppShell() {
           visualEffect:r.visual_effect||"none", createdAt:r.created_at?.split("T")[0]||""
         })));
 
-        // Update own member presence
         const { data: { user: u } } = await supabase.auth.getUser();
         if (u) {
           await supabase.from("members").upsert({
@@ -689,12 +678,8 @@ export default function AppShell() {
         }
       } catch(e) {
         console.error("[AeroSync] Supabase init failed:", e);
-        // Log which env vars are set
-        console.log("[AeroSync] SUPABASE_URL set:", !!process.env.NEXT_PUBLIC_SUPABASE_URL);
       }
     };
-    // initSupabase runs immediately — auth session is already set from cookies
-    // We call getUser() inside initSupabase anyway before upsert
     initSupabase();
 
     // ── Realtime subscriptions ────────────────────────────────────────────────
@@ -742,7 +727,6 @@ export default function AppShell() {
     const notifSub = supabase.channel("notif_changes")
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"notifications"},(payload)=>{
         setNotifications(p=>[payload.new as AppNotification,...p]);
-        // Show browser notification
         if(typeof Notification!=="undefined"&&Notification.permission==="granted") {
           new Notification(payload.new.title,{body:payload.new.body,icon:"/icons/icon-192.png"});
         }
@@ -758,7 +742,6 @@ export default function AppShell() {
 
   useEffect(()=>{
     if(!isMounted)return;
-    // Only persist UI preferences locally — shared data lives in Supabase
     saveLS("as_roles", roles);
     saveLS("as_memberroles", memberRoles);
     saveLS("as_appearance", appearance);
@@ -791,6 +774,69 @@ export default function AppShell() {
     }catch(e:any){setAuthError(e.message);}finally{setAuthLoading(false);}
   };
   const handleLogout = async()=>{ const s=createClient(); await s.auth.signOut(); };
+
+  // ── DB Sync Functions for Roles ───────────────────────────────────────────
+  const updateMemberRole = async (memberId: string, newRoleId: string) => {
+    if (!canManageRoles) return;
+    const member = members.find(m => m.id === memberId);
+    if (!member) return;
+
+    // Optimistic Update
+    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role_id: newRoleId } : m));
+    if (member.email) {
+      setMemberRoles(prev => [
+        ...prev.filter(mr => mr.email !== member.email),
+        { email: member.email, roleId: newRoleId, assignedAt: new Date().toISOString(), assignedBy: currentUserEmail }
+      ]);
+    }
+    setRoleChangeTarget(null);
+
+    // Sync to Supabase
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from("members").update({ role_id: newRoleId }).eq("id", memberId);
+      if (error) console.error("role update err:", error);
+    } catch (e) {
+      console.error("role update err:", e);
+    }
+  };
+
+  const saveRole = async (role: Role) => {
+    if (!canManageRoles) return;
+    const isNew = !roles.find(r => r.id === role.id);
+    
+    // Optimistic update
+    setRoles(prev => isNew ? [...prev, role] : prev.map(r => r.id === role.id ? role : r));
+    setEditingRole(null);
+    setShowNewRoleForm(false);
+
+    try {
+      const supabase = createClient();
+      if (isNew) {
+        const { error } = await supabase.from("roles").insert({
+          id: role.id, name: role.name, color: role.color, icon: role.icon,
+          permissions: role.permissions, is_default: role.isDefault, visual_effect: role.visualEffect
+        });
+        if(error) console.error("insert role err:", error);
+      } else {
+        const { error } = await supabase.from("roles").update({
+          name: role.name, color: role.color, icon: role.icon,
+          permissions: role.permissions, is_default: role.isDefault, visual_effect: role.visualEffect
+        }).eq("id", role.id);
+        if(error) console.error("update role err:", error);
+      }
+    } catch(e) { console.error("Role save error:", e); }
+  };
+
+  const deleteRole = async (roleId: string) => {
+    if (!canManageRoles) return;
+    setRoles(prev => prev.filter(r => r.id !== roleId));
+    setEditingRole(null);
+    try {
+      const supabase = createClient();
+      await supabase.from("roles").delete().eq("id", roleId);
+    } catch(e) { console.error("Role delete error:", e); }
+  };
 
   // ── Availability ─────────────────────────────────────────────────────────
   const setMyAvail = async(status:Availability["status"])=>{
@@ -861,9 +907,7 @@ export default function AppShell() {
       const reply = data.reply || data.error || "エラーが発生しました";
       const sources: string[] = data.sources ?? [];
       const fullReply = sources.length > 0
-        ? reply + `
-
-🔍 参照: ${sources.slice(0,2).join(', ')}`
+        ? reply + `\n\n🔍 参照: ${sources.slice(0,2).join(', ')}`
         : reply;
       setChatMessages(prev=>[...prev,{role:"assistant",content:fullReply,ts:Date.now()}]);
     } catch { setChatMessages(prev=>[...prev,{role:"assistant",content:"接続エラーが発生しました",ts:Date.now()}]); }
@@ -898,7 +942,6 @@ export default function AppShell() {
       if(data) setDmMessages(data as DmMessage[]);
       supabase.channel(`dm_${channelId.replace(/:/g,"_")}`).on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.${channelId}`},(p)=>{
         const incoming = p.new as DmMessage;
-        // Skip if this is our own message (already added optimistically)
         setDmMessages(prev=>{
           const isDuplicate = prev.some(m=>m.sender_id===incoming.sender_id && m.content===incoming.content && Math.abs(new Date(m.created_at).getTime()-new Date(incoming.created_at).getTime())<5000);
           if(isDuplicate) return prev.map(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content?{...m,id:incoming.id,created_at:incoming.created_at}:m);
@@ -919,7 +962,6 @@ export default function AppShell() {
     setGroupInput("");setMentionTarget(null);
     try {
       await supabase.from("messages").insert({channel_id:"general",channel_type:"group",sender_id:user.id,sender_email:user.email,sender_name:user.user_metadata?.full_name||user.email,content:msg.content,mentions});
-      // Notify mentioned member (Discord DM + in-app)
       if(mentionMember){
         await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"mention",targetUserId:mentionMember.id,targetDiscordId:mentionMember.discord_id,channelId:process.env.NEXT_PUBLIC_DISCORD_CHANNEL_ID,message:{title:`🔔 @${user.user_metadata?.full_name||user.email}からメンション`,body:msg.content,data:{}}})});
       }
@@ -1132,7 +1174,11 @@ export default function AppShell() {
                 : <div className="space-y-2">
                     {todayTaskList.slice(0, 4).map((t, i) => (
                       <div key={t.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3 px-3.5 py-3 transition-all active:scale-[0.99]" style={{borderLeftWidth:3,borderLeftColor:t.color, animationDelay:`${i*0.05}s`}}>
-                        <button onClick={()=>setTasks(p=>p.map(x=>x.id===t.id?{...x,done:!x.done}:x))}
+                        <button onClick={async ()=>{
+                          const nd=!t.done;
+                          setTasks(p=>p.map(x=>x.id===t.id?{...x,done:nd}:x));
+                          try{const sb=createClient();await sb.from('tasks').update({done:nd}).eq('id',t.id);}catch(er){console.log('done err',er);}
+                        }}
                           className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all" style={t.done?{background:t.color,borderColor:t.color}:{borderColor:t.color+"88"}}>
                           {t.done&&<Check size={10} className="text-white"/>}
                         </button>
@@ -1225,7 +1271,7 @@ export default function AppShell() {
                 </div>
                 <div className="space-y-1.5">
                   {recentWikis.map(w=>(
-                    <button key={w.id} onClick={()=>{setWikis(p=>p.map(x=>x.id===w.id?{...x,views:x.views+1}:x));setActiveWiki({...w,views:w.views+1});setActiveTab("wiki");}}
+                    <button key={w.id} onClick={async()=>{setWikis(p=>p.map(x=>x.id===w.id?{...x,views:x.views+1}:x));setActiveWiki({...w,views:w.views+1});setActiveTab("wiki");try{const sb=createClient();await sb.from('wiki_pages').update({views:w.views+1}).eq('id',w.id);}catch(e){console.log(e);}}}
                       className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5 text-left flex items-center gap-3 hover:border-blue-200 transition-all active:scale-[0.99]">
                       <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{background:appearance.accentColor+"15"}}>
                         <Hash size={15} style={{color:appearance.accentColor}}/>
@@ -1267,7 +1313,7 @@ export default function AppShell() {
       );
     }
 
-        // ── Schedule ──────────────────────────────────────────────────────────
+    // ── Schedule ──────────────────────────────────────────────────────────
     if(activeTab==="schedule") return (
       <div className={`p-4 space-y-4 ${fadeIn}`}>
         <div className="grid grid-cols-3 gap-2">
@@ -1321,7 +1367,7 @@ export default function AppShell() {
           );
         })()}
 
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-1.5"><Users size={14} className="text-blue-500"/> {selectedDate} の参加状況</h3>
           <div className="flex gap-2 mb-3">
             {(["available","maybe","unavailable"] as const).map(s=>(
@@ -1347,7 +1393,7 @@ export default function AppShell() {
           </button>
         )}
 
-                <h3 className="text-sm font-bold text-gray-500">{selectedDate} のタスク</h3>
+        <h3 className="text-sm font-bold text-gray-500">{selectedDate} のタスク</h3>
         {selectedTasks.length===0?<div className="text-center py-8 text-gray-400 text-sm bg-white rounded-2xl border border-gray-100">この日はタスクがありません</div>
           :<div className="space-y-2">{selectedTasks.map(task=>(
             <div key={task.id} onClick={()=>{setTaskDetailId(task.id);setTaskEditDesc(task.notes||"");setTaskEditPhoto(task.photo||null);}}
@@ -1390,7 +1436,6 @@ export default function AppShell() {
         {taskDetailId&&(()=>{
           const task = tasks.find(t=>t.id===taskDetailId);
           if(!task) return null;
-          const role = roles.find(r=>r.id===myEffectiveRoleId);
           return (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setTaskDetailId(null)}>
               <div className={`bg-white w-full rounded-t-3xl max-h-[90vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
@@ -1471,7 +1516,7 @@ export default function AppShell() {
           );
         })()}
 
-                {showTaskForm&&(
+        {showTaskForm&&(
           <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setShowTaskForm(false)}>
             <div className={`bg-white w-full rounded-t-3xl p-6 space-y-3 max-h-[90vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
               <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto"/>
@@ -1505,7 +1550,7 @@ export default function AppShell() {
             <div key={item.id} className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden transition-all hover:shadow-md ${fadeIn}`}>
               <div className="relative">
                 {item.isEmoji?<div className="h-24 bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center text-5xl">{item.image}</div>:<img src={item.image} alt={item.name} className="w-full h-24 object-cover"/>}
-                {perms.manageInventory&&<button onClick={()=>setInventory(p=>p.filter(x=>x.id!==item.id))} className="absolute top-1.5 right-1.5 w-6 h-6 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-400 shadow-sm transition-all"><Trash2 size={11}/></button>}
+                {perms.manageInventory&&<button onClick={async ()=>{setInventory(p=>p.filter(x=>x.id!==item.id));try{const sb=createClient();await sb.from('inventory').delete().eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="absolute top-1.5 right-1.5 w-6 h-6 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-400 shadow-sm transition-all"><Trash2 size={11}/></button>}
                 <div className="absolute top-1.5 left-1.5"><Pill color={appearance.accentColor}>{item.category}</Pill></div>
               </div>
               <div className="p-2.5">
@@ -1556,7 +1601,7 @@ export default function AppShell() {
           <div className="space-y-2">
             {fw.length===0?<div className="text-center py-8 text-sm text-gray-400 bg-white rounded-2xl border border-gray-100">ページがありません</div>
               :fw.map(w=>(
-                <button key={w.id} onClick={()=>{setWikis(p=>p.map(x=>x.id===w.id?{...x,views:x.views+1}:x));setActiveWiki({...w,views:w.views+1});}}
+                <button key={w.id} onClick={async()=>{setWikis(p=>p.map(x=>x.id===w.id?{...x,views:x.views+1}:x));setActiveWiki({...w,views:w.views+1});try{const sb=createClient();await sb.from('wiki_pages').update({views:w.views+1}).eq('id',w.id);}catch(e){console.log(e);}}}
                   className={`w-full bg-white p-4 rounded-2xl border border-gray-100 shadow-sm text-left hover:border-blue-200 hover:shadow-md transition-all active:scale-[0.99] ${fadeIn}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -1672,19 +1717,7 @@ export default function AppShell() {
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">ロールを変更</p>
                     <div className="flex flex-wrap gap-1.5">
                       {roles.map(r=>(
-                        <button key={r.id} onClick={async()=>{
-                          // Update local state
-                          setMemberRoles(p=>[...p.filter(mr=>mr.email!==member.email),{email:member.email||"",roleId:r.id,assignedAt:new Date().toISOString().split("T")[0],assignedBy:currentUserEmail}]);
-                          setMembers(p=>p.map(m=>m.id===member.id?{...m,role_id:r.id}:m));
-                          setRoleChangeTarget(null);
-                          // Sync to Supabase — update role_id in members table
-                          // Other clients receive via membersSub realtime channel
-                          try {
-                            const sb=createClient();
-                            const {error} = await sb.from("members").update({role_id:r.id}).eq("id",member.id);
-                            if(error) console.error("role update err:", error);
-                          } catch(e){console.log("role update err",e);}
-                        }}
+                        <button key={r.id} onClick={() => updateMemberRole(member.id, r.id)}
                           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border-2 transition-all active:scale-95 ${effectiveRoleId===r.id?"border-opacity-100":"border-opacity-20 opacity-60 hover:opacity-100"}`}
                           style={{borderColor:r.color,background:effectiveRoleId===r.id?r.color+"22":"transparent",color:r.color}}>
                           {r.icon} {r.name}
@@ -1800,7 +1833,7 @@ export default function AppShell() {
       </div>
     );
 
-        // ── Settings ──────────────────────────────────────────────────────────
+    // ── Settings ──────────────────────────────────────────────────────────
     if(activeTab==="settings") {
       const SETTINGS_TABS: {id:SettingsTab; label:string; icon:React.ReactNode}[] = [
         {id:"profile",label:"プロフィール",icon:<User size={14}/>},
@@ -1954,10 +1987,24 @@ export default function AppShell() {
                         <option value="">ロールを選択</option>
                         {roles.map(r=><option key={r.id} value={r.id}>{r.icon} {r.name}</option>)}
                       </select>
-                      <button onClick={()=>{
+                      <button onClick={async()=>{
                         if(!assignEmail.trim()||!assignRoleId)return;
-                        setMemberRoles(p=>[...p.filter(m=>m.email!==assignEmail.trim()),{email:assignEmail.trim(),roleId:assignRoleId,assignedAt:new Date().toISOString().split("T")[0],assignedBy:currentUserEmail}]);
-                        setAssignEmail("");setAssignRoleId("");
+                        const targetEmail = assignEmail.trim();
+                        // Optimistic update local states
+                        setMemberRoles(p=>[...p.filter(m=>m.email!==targetEmail),{email:targetEmail,roleId:assignRoleId,assignedAt:new Date().toISOString().split("T")[0],assignedBy:currentUserEmail}]);
+                        setAssignEmail("");
+                        setAssignRoleId("");
+
+                        // Sync to DB if member already exists
+                        const existingMember = members.find(m => m.email === targetEmail);
+                        if (existingMember) {
+                          try {
+                            const sb = createClient();
+                            await sb.from("members").update({ role_id: assignRoleId }).eq("id", existingMember.id);
+                          } catch (e) {
+                            console.error("Assign role db error:", e);
+                          }
+                        }
                       }} className="w-full text-white font-bold py-2.5 rounded-xl text-sm transition-all" style={{background:appearance.accentColor}}>割り当て</button>
                     </div>
                     {memberRoles.length>0&&(
@@ -2289,11 +2336,11 @@ export default function AppShell() {
 
       {/* Role editor */}
       {editingRole&&(
-        <RoleEditor role={editingRole} onSave={updated=>{setRoles(p=>p.map(r=>r.id===updated.id?updated:r));setEditingRole(null);}} onClose={()=>setEditingRole(null)} onDelete={editingRole.isDefault?undefined:()=>{setRoles(p=>p.filter(r=>r.id!==editingRole.id));setEditingRole(null);}}/>
+        <RoleEditor role={editingRole} onSave={saveRole} onClose={()=>setEditingRole(null)} onDelete={editingRole.isDefault?undefined:()=>deleteRole(editingRole.id)}/>
       )}
       {showNewRoleForm&&(
         <RoleEditor role={{id:Date.now().toString(),name:"新しいロール",color:"#3b82f6",icon:"👤",permissions:{...DEFAULT_PERMISSIONS},isDefault:false,visualEffect:"none",createdAt:new Date().toISOString().split("T")[0]}}
-          onSave={r=>{setRoles(p=>[...p,r]);setShowNewRoleForm(false);}} onClose={()=>setShowNewRoleForm(false)}/>
+          onSave={saveRole} onClose={()=>setShowNewRoleForm(false)}/>
       )}
     </div>
   );
