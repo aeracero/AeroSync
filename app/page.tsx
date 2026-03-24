@@ -135,44 +135,18 @@ const EFFECT_STYLES: Record<string,string> = {
 const fadeIn = "animate-[fadeIn_0.3s_ease-out]";
 const slideUp = "animate-[slideUp_0.35s_cubic-bezier(0.34,1.56,0.64,1)]";
 
-// ─── VisualEffect component ────────────────────────────────────────────────────
 function VisualEffectWrapper({ effect, children }: { effect:string; children:React.ReactNode }) {
   if (effect === "none" || !effect) return <>{children}</>;
-  if (effect === "sparkle") return (
-    <span className="relative inline-flex">
-      {children}
-      <span className="absolute -top-1 -right-1 text-[10px] animate-bounce pointer-events-none">✨</span>
-    </span>
-  );
-  if (effect === "fire") return (
-    <span className="relative inline-flex">
-      {children}
-      <span className="absolute -top-2 -right-0.5 text-[10px] pointer-events-none" style={{animation:"floatPulse 1.5s ease-in-out infinite"}}>🔥</span>
-    </span>
-  );
-  if (effect === "rainbow") return (
-    <span className="bg-gradient-to-r from-red-500 via-yellow-500 via-green-500 via-blue-500 to-purple-500 bg-clip-text text-transparent font-black">{children}</span>
-  );
-  if (effect === "glow") return (
-    <span style={{filter:"drop-shadow(0 0 6px rgba(139,92,246,0.7))"}}>  {children}</span>
-  );
-  if (effect === "snow") return (
-    <span className="relative inline-flex">
-      {children}
-      <span className="absolute -top-1 -right-0.5 text-[10px] pointer-events-none" style={{animation:"spin 3s linear infinite"}}>❄️</span>
-    </span>
-  );
-  if (effect === "stars") return (
-    <span className="relative inline-flex">
-      {children}
-      <span className="absolute -top-1.5 -right-0.5 text-[10px] pointer-events-none animate-pulse">⭐</span>
-    </span>
-  );
+  if (effect === "sparkle") return <span className="relative inline-flex">{children}<span className="absolute -top-1 -right-1 text-[10px] animate-bounce pointer-events-none">✨</span></span>;
+  if (effect === "fire") return <span className="relative inline-flex">{children}<span className="absolute -top-2 -right-0.5 text-[10px] pointer-events-none" style={{animation:"floatPulse 1.5s ease-in-out infinite"}}>🔥</span></span>;
+  if (effect === "rainbow") return <span className="bg-gradient-to-r from-red-500 via-yellow-500 via-green-500 via-blue-500 to-purple-500 bg-clip-text text-transparent font-black">{children}</span>;
+  if (effect === "glow") return <span style={{filter:"drop-shadow(0 0 6px rgba(139,92,246,0.7))"}}>  {children}</span>;
+  if (effect === "snow") return <span className="relative inline-flex">{children}<span className="absolute -top-1 -right-0.5 text-[10px] pointer-events-none" style={{animation:"spin 3s linear infinite"}}>❄️</span></span>;
+  if (effect === "stars") return <span className="relative inline-flex">{children}<span className="absolute -top-1.5 -right-0.5 text-[10px] pointer-events-none animate-pulse">⭐</span></span>;
   if (effect === "pulse") return <span className="animate-pulse">{children}</span>;
   return <>{children}</>;
 }
 
-// ─── Particle canvas for background effects ────────────────────────────────────
 function ParticleEffect({ effect }: { effect:string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -216,49 +190,13 @@ function ParticleEffect({ effect }: { effect:string }) {
   return <canvas ref={canvasRef} className="fixed inset-0 pointer-events-none z-10 opacity-30" style={{width:"100%",height:"100%"}}/>;
 }
 
-// ─── Small UI atoms ────────────────────────────────────────────────────────────
-function DiscordIcon() {
-  return <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.031.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>;
-}
+function DiscordIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.031.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>; }
+function Pill({ color, children }: { color?:string; children:React.ReactNode }) { return <span style={{background:color?color+"22":undefined,color,border:`1px solid ${color}44`}} className="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">{children}</span>; }
+function Toggle({ checked, onChange, activeColor="#3b82f6" }: { checked:boolean; onChange:(v:boolean)=>void; activeColor?:string }) { return <label className="relative inline-flex items-center cursor-pointer" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)} className="sr-only peer"/><div className="w-11 h-6 bg-gray-200 rounded-full transition-all duration-300" style={{background:checked?activeColor:"#e5e7eb"}}/><div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-300" style={{transform:checked?"translateX(20px)":"translateX(0)"}}/></label>; }
+function SectionHeader({ title }: { title:string }) { return <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-4 py-2.5">{title}</p>; }
+function SettingsRow({ icon, iconBg, title, subtitle, right, onClick, danger }: { icon:React.ReactNode; iconBg:string; title:string; subtitle?:string; right?:React.ReactNode; onClick?:()=>void; danger?:boolean; }) { return <div onClick={onClick} className={`flex items-center gap-3 px-4 py-3 ${onClick?"cursor-pointer hover:bg-gray-50":""} ${danger?"hover:bg-red-50":""} transition-colors`}><div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>{icon}</div><div className="flex-1 min-w-0"><p className={`text-sm font-bold ${danger?"text-red-500":"text-gray-800"}`}>{title}</p>{subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}</div>{right ?? (onClick && <ChevronRight size={15} className="text-gray-300 shrink-0"/>)}</div>; }
 
-function Pill({ color, children }: { color?:string; children:React.ReactNode }) {
-  return <span style={{background:color?color+"22":undefined,color,border:`1px solid ${color}44`}} className="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">{children}</span>;
-}
-
-function Toggle({ checked, onChange, activeColor="#3b82f6" }: { checked:boolean; onChange:(v:boolean)=>void; activeColor?:string }) {
-  return (
-    <label className="relative inline-flex items-center cursor-pointer" onClick={e=>e.stopPropagation()}>
-      <input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)} className="sr-only peer"/>
-      <div className="w-11 h-6 bg-gray-200 rounded-full transition-all duration-300" style={{background:checked?activeColor:"#e5e7eb"}}/>
-      <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-300" style={{transform:checked?"translateX(20px)":"translateX(0)"}}/>
-    </label>
-  );
-}
-
-function SectionHeader({ title }: { title:string }) {
-  return <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-4 py-2.5">{title}</p>;
-}
-
-function SettingsRow({ icon, iconBg, title, subtitle, right, onClick, danger }: {
-  icon:React.ReactNode; iconBg:string; title:string; subtitle?:string;
-  right?:React.ReactNode; onClick?:()=>void; danger?:boolean;
-}) {
-  return (
-    <div onClick={onClick} className={`flex items-center gap-3 px-4 py-3 ${onClick?"cursor-pointer hover:bg-gray-50":""} ${danger?"hover:bg-red-50":""} transition-colors`}>
-      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>{icon}</div>
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm font-bold ${danger?"text-red-500":"text-gray-800"}`}>{title}</p>
-        {subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}
-      </div>
-      {right ?? (onClick && <ChevronRight size={15} className="text-gray-300 shrink-0"/>)}
-    </div>
-  );
-}
-
-// ─── Calendar ─────────────────────────────────────────────────────────────────
-function CalendarView({ tasks, availability, onDayClick, selectedDate }: {
-  tasks:Task[]; availability:Availability[]; onDayClick:(d:string)=>void; selectedDate:string;
-}) {
+function CalendarView({ tasks, availability, onDayClick, selectedDate }: { tasks:Task[]; availability:Availability[]; onDayClick:(d:string)=>void; selectedDate:string; }) {
   const [vd, setVd] = useState(new Date());
   const yr=vd.getFullYear(), mo=vd.getMonth();
   const fd=new Date(yr,mo,1).getDay(), dim=new Date(yr,mo+1,0).getDate();
@@ -272,16 +210,13 @@ function CalendarView({ tasks, availability, onDayClick, selectedDate }: {
         <button onClick={()=>setVd(new Date(yr,mo+1))} className="p-1.5 rounded-xl hover:bg-gray-100 transition-all active:scale-90"><ChevronRight size={16} className="text-gray-500"/></button>
       </div>
       <div className="grid grid-cols-7 text-center px-1 pb-2">
-        {["日","月","火","水","木","金","土"].map((d,i)=>(
-          <div key={d} className={`py-2 text-[10px] font-bold ${i===0?"text-red-400":i===6?"text-blue-400":"text-gray-400"}`}>{d}</div>
-        ))}
+        {["日","月","火","水","木","金","土"].map((d,i)=><div key={d} className={`py-2 text-[10px] font-bold ${i===0?"text-red-400":i===6?"text-blue-400":"text-gray-400"}`}>{d}</div>)}
         {Array.from({length:fd}).map((_,i)=><div key={`b${i}`}/>)}
         {Array.from({length:dim},(_,i)=>i+1).map(d=>{
           const s=ds(d), dt=tasks.filter(t=>t.date===s), av=availability.filter(a=>a.date===s);
           const isSel=s===selectedDate, isT=s===today;
           return (
-            <button key={d} onClick={()=>onDayClick(s)}
-              className={`relative py-1.5 mx-0.5 my-0.5 rounded-xl text-xs font-medium transition-all duration-200 active:scale-90 ${isSel?"bg-blue-600 text-white shadow-md shadow-blue-200":isT?"bg-blue-50 text-blue-600 font-bold":"text-gray-700 hover:bg-gray-50"}`}>
+            <button key={d} onClick={()=>onDayClick(s)} className={`relative py-1.5 mx-0.5 my-0.5 rounded-xl text-xs font-medium transition-all duration-200 active:scale-90 ${isSel?"bg-blue-600 text-white shadow-md shadow-blue-200":isT?"bg-blue-50 text-blue-600 font-bold":"text-gray-700 hover:bg-gray-50"}`}>
               {d}
               {(dt.length>0||av.length>0)&&(
                 <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 flex gap-0.5">
@@ -297,7 +232,6 @@ function CalendarView({ tasks, availability, onDayClick, selectedDate }: {
   );
 }
 
-// ─── Wiki Page View ────────────────────────────────────────────────────────────
 function WikiPageView({ page, canEdit, onSave, onBack }: { page:WikiPage; canEdit:boolean; onSave:(p:WikiPage)=>void; onBack:()=>void; }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(page.title);
@@ -308,19 +242,12 @@ function WikiPageView({ page, canEdit, onSave, onBack }: { page:WikiPage; canEdi
     <div className={`flex flex-col h-full ${fadeIn}`}>
       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-white sticky top-0 z-10">
         <button onClick={onBack} className="p-1.5 rounded-xl hover:bg-gray-100 transition-all active:scale-90"><ArrowLeft size={18} className="text-gray-600"/></button>
-        <div className="flex-1 min-w-0">
-          {editing?<input value={title} onChange={e=>setTitle(e.target.value)} className="w-full text-base font-bold border-b border-blue-300 focus:outline-none bg-transparent"/>
-            :<h2 className="text-base font-bold text-gray-900 truncate">{page.title}</h2>}
-        </div>
-        {canEdit&&(editing
-          ?<button onClick={save} className="flex items-center gap-1 text-xs font-bold text-white bg-blue-600 px-3 py-1.5 rounded-xl transition-all active:scale-95"><Save size={13}/> 保存</button>
-          :<button onClick={()=>setEditing(true)} className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl transition-all active:scale-95"><Edit2 size={13}/> 編集</button>
-        )}
+        <div className="flex-1 min-w-0">{editing?<input value={title} onChange={e=>setTitle(e.target.value)} className="w-full text-base font-bold border-b border-blue-300 focus:outline-none bg-transparent"/>:<h2 className="text-base font-bold text-gray-900 truncate">{page.title}</h2>}</div>
+        {canEdit&&(editing?<button onClick={save} className="flex items-center gap-1 text-xs font-bold text-white bg-blue-600 px-3 py-1.5 rounded-xl transition-all active:scale-95"><Save size={13}/> 保存</button>:<button onClick={()=>setEditing(true)} className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl transition-all active:scale-95"><Edit2 size={13}/> 編集</button>)}
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         <div className="flex items-center gap-2 mb-4">
-          {editing?<select value={category} onChange={e=>setCategory(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none">{WIKI_CATS.map(c=><option key={c}>{c}</option>)}</select>
-            :<Pill color="#3b82f6">{page.category}</Pill>}
+          {editing?<select value={category} onChange={e=>setCategory(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none">{WIKI_CATS.map(c=><option key={c}>{c}</option>)}</select>:<Pill color="#3b82f6">{page.category}</Pill>}
           <span className="text-[10px] text-gray-400">更新: {page.updatedAt} · 👁 {page.views}</span>
         </div>
         {editing?<textarea value={content} onChange={e=>setContent(e.target.value)} rows={20} className="w-full text-sm text-gray-700 leading-relaxed border border-gray-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none font-mono"/>
@@ -341,108 +268,56 @@ function WikiPageView({ page, canEdit, onSave, onBack }: { page:WikiPage; canEdi
   );
 }
 
-// ─── Role Editor ───────────────────────────────────────────────────────────────
 function RoleEditor({ role, onSave, onClose, onDelete }: { role:Role; onSave:(r:Role)=>void; onClose:()=>void; onDelete?:()=>void; }) {
   const [draft, setDraft] = useState<Role>({...role, permissions:{...role.permissions}});
   const PERM_LABELS: {key:keyof Permission; label:string; desc:string}[] = [
-    {key:"manageTasks",label:"タスク管理",desc:"タスクの追加・編集・削除"},
-    {key:"manageInventory",label:"在庫管理",desc:"機材の追加・編集・削除"},
-    {key:"manageWiki",label:"Wiki管理",desc:"Wikiページの編集・削除"},
-    {key:"manageMembers",label:"メンバー管理",desc:"ロールの割り当て"},
-    {key:"manageRoles",label:"ロール管理",desc:"ロールの作成・編集・削除"},
-    {key:"viewStats",label:"統計閲覧",desc:"詳細な統計情報の閲覧"},
-    {key:"exportData",label:"データ出力",desc:"データのエクスポート"},
+    {key:"manageTasks",label:"タスク管理",desc:"タスクの追加・編集・削除"}, {key:"manageInventory",label:"在庫管理",desc:"機材の追加・編集・削除"},
+    {key:"manageWiki",label:"Wiki管理",desc:"Wikiページの編集・削除"}, {key:"manageMembers",label:"メンバー管理",desc:"ロールの割り当て"},
+    {key:"manageRoles",label:"ロール管理",desc:"ロールの作成・編集・削除"}, {key:"viewStats",label:"統計閲覧",desc:"詳細な統計情報の閲覧"}, {key:"exportData",label:"データ出力",desc:"データのエクスポート"},
   ];
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end" onClick={onClose}>
       <div className={`bg-white w-full rounded-t-3xl max-h-[90vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
         <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mt-3 mb-1"/>
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">{draft.icon}</span>
-            <h3 className="font-black text-gray-900 text-base">ロールを編集</h3>
-          </div>
+          <div className="flex items-center gap-2"><span className="text-xl">{draft.icon}</span><h3 className="font-black text-gray-900 text-base">ロールを編集</h3></div>
           <button onClick={onClose} className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center"><X size={14} className="text-gray-500"/></button>
         </div>
         <div className="p-5 space-y-5">
-          {/* Preview */}
           <div className="rounded-2xl p-4 flex items-center gap-3" style={{background:draft.color+"18",border:`1.5px solid ${draft.color}44`}}>
             <span className="text-2xl">{draft.icon}</span>
-            <div>
-              <VisualEffectWrapper effect={draft.visualEffect}>
-                <span className="font-black text-base" style={{color:draft.color}}>{draft.name}</span>
-              </VisualEffectWrapper>
-              <p className="text-xs text-gray-500 mt-0.5">プレビュー</p>
-            </div>
+            <div><VisualEffectWrapper effect={draft.visualEffect}><span className="font-black text-base" style={{color:draft.color}}>{draft.name}</span></VisualEffectWrapper><p className="text-xs text-gray-500 mt-0.5">プレビュー</p></div>
           </div>
-          {/* Name */}
-          <div>
-            <label className="text-xs font-bold text-gray-500 block mb-1.5">ロール名</label>
-            <input value={draft.name} onChange={e=>setDraft(p=>({...p,name:e.target.value}))} disabled={draft.isDefault}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400"/>
-          </div>
-          {/* Color */}
+          <div><label className="text-xs font-bold text-gray-500 block mb-1.5">ロール名</label><input value={draft.name} onChange={e=>setDraft(p=>({...p,name:e.target.value}))} disabled={draft.isDefault} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400"/></div>
           <div>
             <label className="text-xs font-bold text-gray-500 block mb-2">カラー</label>
             <div className="flex gap-2 flex-wrap">
-              {ROLE_COLORS.map(c=>(
-                <button key={c} onClick={()=>setDraft(p=>({...p,color:c}))} style={{background:c}}
-                  className={`w-8 h-8 rounded-full transition-all ${draft.color===c?"scale-125 ring-2 ring-offset-1 ring-gray-400":""}`}/>
-              ))}
-              <div className="relative">
-                <input type="color" value={draft.color} onChange={e=>setDraft(p=>({...p,color:e.target.value}))}
-                  className="w-8 h-8 rounded-full cursor-pointer border-0 p-0"/>
-              </div>
+              {ROLE_COLORS.map(c=><button key={c} onClick={()=>setDraft(p=>({...p,color:c}))} style={{background:c}} className={`w-8 h-8 rounded-full transition-all ${draft.color===c?"scale-125 ring-2 ring-offset-1 ring-gray-400":""}`}/>)}
+              <div className="relative"><input type="color" value={draft.color} onChange={e=>setDraft(p=>({...p,color:e.target.value}))} className="w-8 h-8 rounded-full cursor-pointer border-0 p-0"/></div>
             </div>
           </div>
-          {/* Icon */}
           <div>
             <label className="text-xs font-bold text-gray-500 block mb-2">アイコン</label>
-            <div className="flex flex-wrap gap-2">
-              {ROLE_ICONS.map(ic=>(
-                <button key={ic} onClick={()=>setDraft(p=>({...p,icon:ic}))}
-                  className={`w-9 h-9 rounded-xl text-xl flex items-center justify-center transition-all ${draft.icon===ic?"bg-blue-100 ring-2 ring-blue-400 scale-110":"bg-gray-100 hover:bg-gray-200"}`}>{ic}</button>
-              ))}
-            </div>
+            <div className="flex flex-wrap gap-2">{ROLE_ICONS.map(ic=><button key={ic} onClick={()=>setDraft(p=>({...p,icon:ic}))} className={`w-9 h-9 rounded-xl text-xl flex items-center justify-center transition-all ${draft.icon===ic?"bg-blue-100 ring-2 ring-blue-400 scale-110":"bg-gray-100 hover:bg-gray-200"}`}>{ic}</button>)}</div>
           </div>
-          {/* Visual Effect */}
           <div>
             <label className="text-xs font-bold text-gray-500 block mb-2">ビジュアルエフェクト</label>
-            <div className="grid grid-cols-2 gap-2">
-              {VISUAL_EFFECTS.map(ef=>(
-                <button key={ef.id} onClick={()=>setDraft(p=>({...p,visualEffect:ef.id}))}
-                  className={`py-2.5 px-3 rounded-xl text-xs font-bold border-2 text-left transition-all ${draft.visualEffect===ef.id?"border-blue-500 bg-blue-50 text-blue-700":"border-gray-200 text-gray-600 hover:border-gray-300"}`}>
-                  {ef.label}
-                </button>
-              ))}
-            </div>
+            <div className="grid grid-cols-2 gap-2">{VISUAL_EFFECTS.map(ef=><button key={ef.id} onClick={()=>setDraft(p=>({...p,visualEffect:ef.id}))} className={`py-2.5 px-3 rounded-xl text-xs font-bold border-2 text-left transition-all ${draft.visualEffect===ef.id?"border-blue-500 bg-blue-50 text-blue-700":"border-gray-200 text-gray-600 hover:border-gray-300"}`}>{ef.label}</button>)}</div>
           </div>
-          {/* Permissions */}
           <div>
             <label className="text-xs font-bold text-gray-500 block mb-2">権限</label>
             <div className="space-y-2 bg-gray-50 rounded-2xl p-3">
               {PERM_LABELS.map(({key,label,desc})=>(
                 <div key={key} className="flex items-center justify-between gap-3 py-1">
-                  <div>
-                    <p className="text-sm font-bold text-gray-800">{label}</p>
-                    <p className="text-xs text-gray-500">{desc}</p>
-                  </div>
+                  <div><p className="text-sm font-bold text-gray-800">{label}</p><p className="text-xs text-gray-500">{desc}</p></div>
                   <Toggle checked={draft.permissions[key]} onChange={v=>setDraft(p=>({...p,permissions:{...p.permissions,[key]:v}}))} activeColor={draft.color}/>
                 </div>
               ))}
             </div>
           </div>
-          {/* Actions */}
           <div className="flex gap-2 pt-2">
-            <button onClick={()=>onSave(draft)} className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-2xl text-sm hover:bg-blue-700 transition-all active:scale-[0.98] flex items-center justify-center gap-2">
-              <Save size={15}/> 保存
-            </button>
-            {!draft.isDefault && onDelete && (
-              <button onClick={onDelete} className="w-12 bg-red-50 text-red-500 font-bold py-3 rounded-2xl text-sm hover:bg-red-100 transition-all flex items-center justify-center">
-                <Trash2 size={15}/>
-              </button>
-            )}
+            <button onClick={()=>onSave(draft)} className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-2xl text-sm hover:bg-blue-700 transition-all active:scale-[0.98] flex items-center justify-center gap-2"><Save size={15}/> 保存</button>
+            {!draft.isDefault && onDelete && <button onClick={onDelete} className="w-12 bg-red-50 text-red-500 font-bold py-3 rounded-2xl text-sm hover:bg-red-100 transition-all flex items-center justify-center"><Trash2 size={15}/></button>}
           </div>
         </div>
       </div>
@@ -450,7 +325,6 @@ function RoleEditor({ role, onSave, onClose, onDelete }: { role:Role; onSave:(r:
   );
 }
 
-// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function AppShell() {
   const [isMounted, setIsMounted] = useState(false);
   const [session, setSession] = useState<any>(undefined);
@@ -467,7 +341,6 @@ export default function AppShell() {
   const searchRef = useRef<HTMLInputElement>(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
 
-  // Roles
   const [roles, setRoles] = useState<Role[]>(DEFAULT_ROLES);
   const [memberRoles, setMemberRoles] = useState<MemberRole[]>([]);
   const [editingRole, setEditingRole] = useState<Role|null>(null);
@@ -478,17 +351,13 @@ export default function AppShell() {
   const [assignEmail, setAssignEmail] = useState("");
   const [assignRoleId, setAssignRoleId] = useState("");
 
-  // Appearance
-  const [appearance, setAppearance] = useState<AppearanceSettings>({
-    theme:"system", accentColor:"#3b82f6", fontSize:"md", reduceMotion:false, compactMode:false
-  });
+  const [appearance, setAppearance] = useState<AppearanceSettings>({ theme:"system", accentColor:"#3b82f6", fontSize:"md", reduceMotion:false, compactMode:false });
   const [myVisualEffect, setMyVisualEffect] = useState("none");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
   const [privateMode, setPrivateMode] = useState(false);
   const [showOnlineStatus, setShowOnlineStatus] = useState(true);
 
-  // Schedule
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -498,21 +367,18 @@ export default function AppShell() {
   const [myAvailStatus, setMyAvailStatus] = useState<Availability["status"]|null>(null);
   const [availNote, setAvailNote] = useState("");
 
-  // Inventory
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [showInvForm, setShowInvForm] = useState(false);
   const [newInv, setNewInv] = useState({ name:"", total:"", emoji:"📦", image:null as string|null, category:INV_CATS[0] });
   const imgRef = useRef<HTMLInputElement>(null);
   const [invFilter, setInvFilter] = useState("すべて");
 
-  // Wiki
   const [wikis, setWikis] = useState<WikiPage[]>([]);
   const [activeWiki, setActiveWiki] = useState<WikiPage|null>(null);
   const [showWikiForm, setShowWikiForm] = useState(false);
   const [newWiki, setNewWiki] = useState({ title:"", cat:WIKI_CATS[0] });
   const [wikiFilter, setWikiFilter] = useState("すべて");
 
-  // Chat
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -521,7 +387,6 @@ export default function AppShell() {
   const [selectionTooltip, setSelectionTooltip] = useState<{text:string;x:number;y:number}|null>(null);
   const pendingSendRef = useRef(false);
 
-  // Members & realtime
   const [members, setMembers] = useState<Member[]>([]);
   const [dmOpen, setDmOpen] = useState<Member|null>(null);
   const [dmMessages, setDmMessages] = useState<DmMessage[]>([]);
@@ -539,19 +404,19 @@ export default function AppShell() {
       const {data}=await supabase.from("messages").select("*").eq("channel_id","general").order("created_at",{ascending:true}).limit(100);
       if(data)setGroupMessages(data as DmMessage[]);
       supabase.channel("general_msgs").on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.general`},(p)=>{
-      const incoming = p.new as DmMessage;
-      setGroupMessages(prev=>{
-        const isDupe = prev.some(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content&&Math.abs(new Date(m.created_at).getTime()-new Date(incoming.created_at).getTime())<5000);
-        if(isDupe) return prev.map(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content?{...m,id:incoming.id}:m);
-        return [...prev,incoming];
-      });
-    }).subscribe();
+        const incoming = p.new as DmMessage;
+        setGroupMessages(prev=>{
+          const isDupe = prev.some(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content&&Math.abs(new Date(m.created_at).getTime()-new Date(incoming.created_at).getTime())<5000);
+          if(isDupe) return prev.map(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content?{...m,id:incoming.id}:m);
+          return [...prev,incoming];
+        });
+      }).subscribe();
     };
     load();
   },[groupOpen]);
 
   const [mentionTarget, setMentionTarget] = useState<Member|null>(null);
-  const [roleChangeTarget, setRoleChangeTarget] = useState<string|null>(null); // member.id
+  const [roleChangeTarget, setRoleChangeTarget] = useState<string|null>(null);
   const [taskDetailId, setTaskDetailId] = useState<string|null>(null);
   const [taskEditDesc, setTaskEditDesc] = useState("");
   const [taskEditPhoto, setTaskEditPhoto] = useState<string|null>(null);
@@ -563,16 +428,13 @@ export default function AppShell() {
 
   const currentUserEmail = session?.user?.email ?? session?.user?.user_metadata?.full_name ?? "me";
 
-  // Derive permissions — DB member.role_id is authoritative, local memberRoles is fallback
   const myMemberRecord = members.find(m=>m.email===currentUserEmail);
   const myLocalRole = memberRoles.find(m=>m.email===currentUserEmail);
-  // Priority: DB role_id > local memberRoles assignment > "member" default
   const myEffectiveRoleId = myMemberRecord?.role_id ?? myLocalRole?.roleId ?? "member";
   const myRoleData = roles.find(r=>r.id===myEffectiveRoleId) ?? roles.find(r=>r.id==="member")!;
   const perms = myRoleData?.permissions ?? DEFAULT_PERMISSIONS;
   const isAdmin = perms.manageTasks || perms.manageInventory || perms.manageWiki;
   const canManageRoles = perms.manageRoles || perms.manageMembers;
-  // noOwner: only show banner if members are loaded AND truly no owner exists
   const membersLoaded = members.length > 0;
   const noOwner = membersLoaded && !members.some(m=>m.role_id==="owner") && !memberRoles.some(m=>m.roleId==="owner");
   const imAlreadyOwner = myEffectiveRoleId==="owner";
@@ -617,7 +479,6 @@ export default function AppShell() {
     });
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,s)=>setSession(s));
 
-    // Only load UI preferences from localStorage — shared data always comes from Supabase
     setRoles(loadLS("as_roles", DEFAULT_ROLES));
     setMemberRoles(loadLS("as_memberroles", []));
     setAppearance(loadLS("as_appearance", {theme:"system",accentColor:"#3b82f6",fontSize:"md",reduceMotion:false,compactMode:false}));
@@ -625,7 +486,6 @@ export default function AppShell() {
     setChatMessages(loadLS("as_chat", []));
     setNotifEnabled(typeof Notification!=="undefined"&&Notification.permission==="granted");
 
-    // ── Supabase realtime subscriptions ──────────────────────────────────────
     const initSupabase = async () => {
       try {
         const { data: membersData } = await supabase.from("members").select("*").order("created_at");
@@ -676,64 +536,68 @@ export default function AppShell() {
             online_at: new Date().toISOString(),
           });
         }
-      } catch(e) {
-        console.error("[AeroSync] Supabase init failed:", e);
-      }
+      } catch(e) { console.error("[AeroSync] Supabase init failed:", e); }
     };
     initSupabase();
 
-    // ── Realtime subscriptions ────────────────────────────────────────────────
-    const tasksSub = supabase.channel("tasks_changes")
-      .on("postgres_changes",{event:"*",schema:"public",table:"tasks"},(payload)=>{
-        if(payload.eventType==="INSERT") setTasks(p=>[...p,{id:payload.new.id,title:payload.new.title,date:payload.new.date,description:payload.new.description||"",assignees:payload.new.assignees||[],openJoin:payload.new.open_join,color:payload.new.color,done:payload.new.done,priority:payload.new.priority,location:payload.new.location||""}]);
-        if(payload.eventType==="UPDATE") setTasks(p=>p.map(t=>t.id===payload.new.id?{...t,done:payload.new.done,assignees:payload.new.assignees||t.assignees}:t));
-        if(payload.eventType==="DELETE") setTasks(p=>p.filter(t=>t.id!==(payload.old as any).id));
-      }).subscribe();
+    const tasksSub = supabase.channel("tasks_changes").on("postgres_changes",{event:"*",schema:"public",table:"tasks"},(payload)=>{
+      if(payload.eventType==="INSERT") setTasks(p=>[...p,{id:payload.new.id,title:payload.new.title,date:payload.new.date,description:payload.new.description||"",assignees:payload.new.assignees||[],openJoin:payload.new.open_join,color:payload.new.color,done:payload.new.done,priority:payload.new.priority,location:payload.new.location||""}]);
+      if(payload.eventType==="UPDATE") setTasks(p=>p.map(t=>t.id===payload.new.id?{...t,done:payload.new.done,assignees:payload.new.assignees||t.assignees}:t));
+      if(payload.eventType==="DELETE") setTasks(p=>p.filter(t=>t.id!==(payload.old as any).id));
+    }).subscribe();
 
-    const invSub = supabase.channel("inventory_changes")
-      .on("postgres_changes",{event:"*",schema:"public",table:"inventory"},(payload)=>{
-        if(payload.eventType==="INSERT") setInventory(p=>[...p,{id:payload.new.id,name:payload.new.name,stock:payload.new.stock,total:payload.new.total,image:payload.new.image||"📦",isEmoji:payload.new.is_emoji,category:payload.new.category}]);
-        if(payload.eventType==="UPDATE") setInventory(p=>p.map(i=>i.id===payload.new.id?{...i,stock:payload.new.stock}:i));
-        if(payload.eventType==="DELETE") setInventory(p=>p.filter(i=>i.id!==(payload.old as any).id));
-      }).subscribe();
+    const invSub = supabase.channel("inventory_changes").on("postgres_changes",{event:"*",schema:"public",table:"inventory"},(payload)=>{
+      if(payload.eventType==="INSERT") setInventory(p=>[...p,{id:payload.new.id,name:payload.new.name,stock:payload.new.stock,total:payload.new.total,image:payload.new.image||"📦",isEmoji:payload.new.is_emoji,category:payload.new.category}]);
+      if(payload.eventType==="UPDATE") setInventory(p=>p.map(i=>i.id===payload.new.id?{...i,stock:payload.new.stock}:i));
+      if(payload.eventType==="DELETE") setInventory(p=>p.filter(i=>i.id!==(payload.old as any).id));
+    }).subscribe();
 
-    const wikiSub = supabase.channel("wiki_changes")
-      .on("postgres_changes",{event:"*",schema:"public",table:"wiki_pages"},(payload)=>{
-        if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") {
-          const w={id:payload.new.id,title:payload.new.title,content:payload.new.content,category:payload.new.category,updatedAt:payload.new.updated_at?.split("T")[0]||"",author:payload.new.author||"",views:payload.new.views||0};
-          setWikis(p=>{ const idx=p.findIndex(x=>x.id===w.id); return idx>=0?p.map((x,i)=>i===idx?w:x):[...p,w]; });
-        }
-        if(payload.eventType==="DELETE") setWikis(p=>p.filter(w=>w.id!==(payload.old as any).id));
-      }).subscribe();
+    const wikiSub = supabase.channel("wiki_changes").on("postgres_changes",{event:"*",schema:"public",table:"wiki_pages"},(payload)=>{
+      if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") {
+        const w={id:payload.new.id,title:payload.new.title,content:payload.new.content,category:payload.new.category,updatedAt:payload.new.updated_at?.split("T")[0]||"",author:payload.new.author||"",views:payload.new.views||0};
+        setWikis(p=>{ const idx=p.findIndex(x=>x.id===w.id); return idx>=0?p.map((x,i)=>i===idx?w:x):[...p,w]; });
+      }
+      if(payload.eventType==="DELETE") setWikis(p=>p.filter(w=>w.id!==(payload.old as any).id));
+    }).subscribe();
 
-    const availSub = supabase.channel("avail_changes")
-      .on("postgres_changes",{event:"*",schema:"public",table:"availability"},(payload)=>{
-        const n=payload.new as any; const o=payload.old as any;
-        const a={userId:n?.user_id,name:n?.user_email||"",date:n?.date,status:n?.status,note:n?.note||""};
-        if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") setAvailability(p=>[...p.filter(x=>!(x.userId===a.userId&&x.date===a.date)),a]);
-        if(payload.eventType==="DELETE") setAvailability(p=>p.filter(x=>!(x.userId===o?.user_id&&x.date===o?.date)));
-      }).subscribe();
+    const availSub = supabase.channel("avail_changes").on("postgres_changes",{event:"*",schema:"public",table:"availability"},(payload)=>{
+      const n=payload.new as any; const o=payload.old as any;
+      const a={userId:n?.user_id,name:n?.user_email||"",date:n?.date,status:n?.status,note:n?.note||""};
+      if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") setAvailability(p=>[...p.filter(x=>!(x.userId===a.userId&&x.date===a.date)),a]);
+      if(payload.eventType==="DELETE") setAvailability(p=>p.filter(x=>!(x.userId===o?.user_id&&x.date===o?.date)));
+    }).subscribe();
 
-    const membersSub = supabase.channel("members_changes")
-      .on("postgres_changes",{event:"*",schema:"public",table:"members"},(payload)=>{
-        if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") {
-          const updated = payload.new as Member;
-          setMembers(p=>{const idx=p.findIndex(m=>m.id===updated.id);return idx>=0?p.map((m,i)=>i===idx?{...m,...updated}:m):[...p,updated];});
-          // Also sync memberRoles local state so role display updates immediately
-          if(updated.role_id) setMemberRoles(p=>[...p.filter(mr=>mr.email!==updated.email),{email:updated.email||"",roleId:updated.role_id,assignedAt:new Date().toISOString().split("T")[0],assignedBy:"sync"}]);
-        }
-      }).subscribe();
+    const membersSub = supabase.channel("members_changes").on("postgres_changes",{event:"*",schema:"public",table:"members"},(payload)=>{
+      if(payload.eventType==="INSERT"||payload.eventType==="UPDATE") {
+        const updated = payload.new as Member;
+        setMembers(p=>{const idx=p.findIndex(m=>m.id===updated.id);return idx>=0?p.map((m,i)=>i===idx?{...m,...updated}:m):[...p,updated];});
+        if(updated.role_id) setMemberRoles(p=>[...p.filter(mr=>mr.email!==updated.email),{email:updated.email||"",roleId:updated.role_id,assignedAt:new Date().toISOString().split("T")[0],assignedBy:"sync"}]);
+      }
+    }).subscribe();
 
-    const notifSub = supabase.channel("notif_changes")
-      .on("postgres_changes",{event:"INSERT",schema:"public",table:"notifications"},(payload)=>{
-        setNotifications(p=>[payload.new as AppNotification,...p]);
-        if(typeof Notification!=="undefined"&&Notification.permission==="granted") {
-          new Notification(payload.new.title,{body:payload.new.body,icon:"/icons/icon-192.png"});
-        }
-      }).subscribe();
+    const notifSub = supabase.channel("notif_changes").on("postgres_changes",{event:"INSERT",schema:"public",table:"notifications"},(payload)=>{
+      setNotifications(p=>[payload.new as AppNotification,...p]);
+      if(typeof Notification!=="undefined"&&Notification.permission==="granted") {
+        new Notification(payload.new.title,{body:payload.new.body,icon:"/icons/icon-192.png"});
+      }
+    }).subscribe();
+
+    const rolesSub = supabase.channel("roles_changes").on("postgres_changes",{event:"*",schema:"public",table:"roles"},(payload)=>{
+      if(payload.eventType==="INSERT") {
+        const r = payload.new;
+        setRoles(p=>[...p.filter(x=>x.id!==r.id), { id:r.id, name:r.name, color:r.color, icon:r.icon, permissions:r.permissions||DEFAULT_PERMISSIONS, isDefault:r.is_default, visualEffect:r.visual_effect||"none", createdAt:r.created_at?.split("T")[0]||"" }]);
+      }
+      if(payload.eventType==="UPDATE") {
+        const r = payload.new;
+        setRoles(p=>p.map(x=>x.id===r.id?{ ...x, name:r.name, color:r.color, icon:r.icon, permissions:r.permissions||DEFAULT_PERMISSIONS, visualEffect:r.visual_effect||"none" }:x));
+      }
+      if(payload.eventType==="DELETE") {
+        setRoles(p=>p.filter(x=>x.id!==(payload.old as any).id));
+      }
+    }).subscribe();
 
     return () => {
-      try { tasksSub.unsubscribe(); invSub.unsubscribe(); wikiSub.unsubscribe(); availSub.unsubscribe(); membersSub.unsubscribe(); notifSub.unsubscribe(); } catch {}
+      try { tasksSub.unsubscribe(); invSub.unsubscribe(); wikiSub.unsubscribe(); availSub.unsubscribe(); membersSub.unsubscribe(); notifSub.unsubscribe(); rolesSub.unsubscribe(); } catch {}
       subscription.unsubscribe();
       document.removeEventListener("pointerup", handleSelectionChange);
       document.removeEventListener("pointerdown", handlePointerDown);
@@ -758,7 +622,6 @@ export default function AppShell() {
     setMyAvailStatus(my?.status??null); setAvailNote(my?.note??"");
   },[selectedDate,availability,currentUserEmail]);
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
   const handleDiscordLogin = async()=>{
     setAuthError(null); setAuthLoading(true);
     try { const s=createClient(); const{error}=await s.auth.signInWithOAuth({provider:"discord",options:{redirectTo:`${window.location.origin}/auth/callback`}}); if(error)throw error; }
@@ -776,12 +639,13 @@ export default function AppShell() {
   const handleLogout = async()=>{ const s=createClient(); await s.auth.signOut(); };
 
   // ── DB Sync Functions for Roles ───────────────────────────────────────────
+  // ここで実際にDBが更新されたかチェックし、弾かれた場合はアラートを出すように修正
   const updateMemberRole = async (memberId: string, newRoleId: string) => {
     if (!canManageRoles) return;
     const member = members.find(m => m.id === memberId);
     if (!member) return;
 
-    // Optimistic Update
+    // Optimistic Update (一瞬反映させるためのローカル更新)
     setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role_id: newRoleId } : m));
     if (member.email) {
       setMemberRoles(prev => [
@@ -794,10 +658,18 @@ export default function AppShell() {
     // Sync to Supabase
     try {
       const supabase = createClient();
-      const { error } = await supabase.from("members").update({ role_id: newRoleId }).eq("id", memberId);
-      if (error) console.error("role update err:", error);
+      // .select() をつけることで更新された行を取得し、0件だった場合はRLSに弾かれたと判断する
+      const { data, error } = await supabase.from("members").update({ role_id: newRoleId }).eq("id", memberId).select();
+      
+      if (error) {
+        console.error("role update err:", error);
+        alert(`ロールの更新エラー: ${error.message}`);
+      } else if (!data || data.length === 0) {
+        // RLSによってブロックされた場合、エラーは出ないが更新件数が0になる
+        alert("DBの更新がブロックされました。Supabaseの RLSポリシー（Row Level Security）で members テーブルの UPDATE権限 が許可されているか確認してください。");
+      }
     } catch (e) {
-      console.error("role update err:", e);
+      console.error("role update catch err:", e);
     }
   };
 
@@ -805,7 +677,6 @@ export default function AppShell() {
     if (!canManageRoles) return;
     const isNew = !roles.find(r => r.id === role.id);
     
-    // Optimistic update
     setRoles(prev => isNew ? [...prev, role] : prev.map(r => r.id === role.id ? role : r));
     setEditingRole(null);
     setShowNewRoleForm(false);
@@ -813,17 +684,19 @@ export default function AppShell() {
     try {
       const supabase = createClient();
       if (isNew) {
-        const { error } = await supabase.from("roles").insert({
+        const { data, error } = await supabase.from("roles").insert({
           id: role.id, name: role.name, color: role.color, icon: role.icon,
           permissions: role.permissions, is_default: role.isDefault, visual_effect: role.visualEffect
-        });
-        if(error) console.error("insert role err:", error);
+        }).select();
+        if(error) alert(`ロールの作成エラー: ${error.message}`);
+        else if (!data || data.length === 0) alert("ロール作成がブロックされました。roles テーブルの RLSポリシーを確認してください。");
       } else {
-        const { error } = await supabase.from("roles").update({
+        const { data, error } = await supabase.from("roles").update({
           name: role.name, color: role.color, icon: role.icon,
           permissions: role.permissions, is_default: role.isDefault, visual_effect: role.visualEffect
-        }).eq("id", role.id);
-        if(error) console.error("update role err:", error);
+        }).eq("id", role.id).select();
+        if(error) alert(`ロールの更新エラー: ${error.message}`);
+        else if (!data || data.length === 0) alert("ロール更新がブロックされました。roles テーブルの RLSポリシーを確認してください。");
       }
     } catch(e) { console.error("Role save error:", e); }
   };
@@ -834,11 +707,11 @@ export default function AppShell() {
     setEditingRole(null);
     try {
       const supabase = createClient();
-      await supabase.from("roles").delete().eq("id", roleId);
+      const { error } = await supabase.from("roles").delete().eq("id", roleId);
+      if(error) alert(`ロール削除エラー: ${error.message}`);
     } catch(e) { console.error("Role delete error:", e); }
   };
 
-  // ── Availability ─────────────────────────────────────────────────────────
   const setMyAvail = async(status:Availability["status"])=>{
     setMyAvailStatus(status);
     setAvailability(prev=>[...prev.filter(a=>!(a.userId===currentUserEmail&&a.date===selectedDate)),{userId:currentUserEmail,name:currentUserEmail,date:selectedDate,status,note:availNote}]);
@@ -850,28 +723,23 @@ export default function AppShell() {
     } catch(e){console.log("avail sync err",e);}
   };
 
-  // ── Tasks ─────────────────────────────────────────────────────────────────
   const addTask = useCallback(async()=>{
     if(!newTask.title.trim())return;
     const supabase = createClient();
     const { data:{ user } } = await supabase.auth.getUser();
-    // Optimistic local add
     const localId = Date.now().toString();
     setTasks(prev=>[...prev,{id:localId,title:newTask.title.trim(),date:selectedDate,description:newTask.desc.trim(),done:false,color:newTask.color,openJoin:newTask.open,assignees:newTask.assignees,priority:newTask.priority,location:newTask.location}]);
     setNewTask({title:"",desc:"",color:TASK_COLORS[0],open:true,assignees:[],priority:"medium",location:""}); setShowTaskForm(false);
-    // Sync to Supabase
     try {
-      const { data, error } = await supabase.from("tasks").insert({
+      const { data } = await supabase.from("tasks").insert({
         title:newTask.title.trim(), date:selectedDate, description:newTask.desc.trim(),
         done:false, color:newTask.color, open_join:newTask.open, assignees:newTask.assignees,
         priority:newTask.priority, location:newTask.location, created_by:user?.id
       }).select().single();
-      // Replace optimistic id with real id
       if(data) setTasks(p=>p.map(t=>t.id===localId?{...t,id:data.id}:t));
     } catch(e) { console.log("Task sync error:", e); }
   },[newTask,selectedDate]);
 
-  // ── Inventory ─────────────────────────────────────────────────────────────
   const addInventory = useCallback(async()=>{
     if(!newInv.name.trim()||!newInv.total)return;
     const n=parseInt(newInv.total,10); if(isNaN(n)||n<1)return;
@@ -888,14 +756,12 @@ export default function AppShell() {
     } catch(e) { console.log("Inventory sync error:", e); }
   },[newInv]);
 
-  // ── Wiki ──────────────────────────────────────────────────────────────────
   const addWiki = useCallback(()=>{
     if(!newWiki.title.trim())return;
     const page:WikiPage={id:Date.now().toString(),title:newWiki.title.trim(),content:`# ${newWiki.title.trim()}\n\nここに内容を書いてください。`,category:newWiki.cat,updatedAt:new Date().toISOString().split("T")[0],author:currentUserEmail,views:0};
     setWikis(prev=>[...prev,page]); setNewWiki({title:"",cat:WIKI_CATS[0]}); setShowWikiForm(false); setActiveWiki(page);
   },[newWiki,currentUserEmail]);
 
-  // ── Chat ──────────────────────────────────────────────────────────────────
   const sendChat = async()=>{
     if(!chatInput.trim()||chatLoading)return;
     const userMsg:ChatMessage={role:"user",content:chatInput.trim(),ts:Date.now()};
@@ -906,15 +772,12 @@ export default function AppShell() {
       const data=await res.json();
       const reply = data.reply || data.error || "エラーが発生しました";
       const sources: string[] = data.sources ?? [];
-      const fullReply = sources.length > 0
-        ? reply + `\n\n🔍 参照: ${sources.slice(0,2).join(', ')}`
-        : reply;
+      const fullReply = sources.length > 0 ? reply + `\n\n🔍 参照: ${sources.slice(0,2).join(', ')}` : reply;
       setChatMessages(prev=>[...prev,{role:"assistant",content:fullReply,ts:Date.now()}]);
     } catch { setChatMessages(prev=>[...prev,{role:"assistant",content:"接続エラーが発生しました",ts:Date.now()}]); }
     finally { setChatLoading(false); }
   };
 
-  // ── DM helpers ─────────────────────────────────────────────────────────────
   const sendDm = async()=>{
     if(!dmInput.trim()||!dmOpen||dmLoading)return;
     const supabase=createClient();
@@ -983,10 +846,8 @@ export default function AppShell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[chatOpen]);
 
-  // ── Notifications ─────────────────────────────────────────────────────────
   const toggleNotif = async()=>{ if(notifEnabled){setNotifEnabled(false);return;} const g=await reqNotif(); setNotifEnabled(g); if(g) new Notification("AeroSync",{body:"通知が有効になりました！",icon:"/icons/icon-192.png"}); };
 
-  // ── Search ────────────────────────────────────────────────────────────────
   const searchResults = searchQuery.trim().length<1?[]:[
     ...tasks.filter(t=>t.title.includes(searchQuery)||t.description.includes(searchQuery)).map(t=>({type:"task",label:t.title,sub:t.date,tab:"schedule" as Tab,color:t.color,wiki:null as WikiPage|null})),
     ...inventory.filter(i=>i.name.includes(searchQuery)).map(i=>({type:"inventory",label:i.name,sub:`残:${i.stock}/${i.total}`,tab:"inventory" as Tab,color:"#3b82f6",wiki:null})),
@@ -997,19 +858,15 @@ export default function AppShell() {
   const todayTasks = tasks.filter(t=>t.date===new Date().toISOString().split("T")[0]);
   const lowStock = inventory.filter(i=>i.stock<i.total*0.3);
 
-  // ── Loading ────────────────────────────────────────────────────────────────
   if(!isMounted||session===undefined) return (
     <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="flex flex-col items-center gap-4">
-        <div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-300 animate-pulse">
-          <span className="text-white font-black text-xl">AS</span>
-        </div>
+        <div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-300 animate-pulse"><span className="text-white font-black text-xl">AS</span></div>
         <div className="flex gap-1.5">{[0,1,2].map(i=><div key={i} className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay:`${i*0.15}s`}}/>)}</div>
       </div>
     </div>
   );
 
-  // ── Auth screen ────────────────────────────────────────────────────────────
   if(!session) return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900 flex items-center justify-center p-4 overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -1058,14 +915,12 @@ export default function AppShell() {
     </div>
   );
 
-  // ── App ────────────────────────────────────────────────────────────────────
   const userProfile = session.user?.user_metadata??{};
   const displayName = userProfile?.full_name??session.user?.email??"ユーザー";
   const selectedTasks = tasks.filter(t=>t.date===selectedDate);
   const selectedAvail = availability.filter(a=>a.date===selectedDate);
 
   const renderContent = () => {
-    // ── Home ──────────────────────────────────────────────────────────────
     if(activeTab==="home") {
       const hour = new Date().getHours();
       const greeting = hour < 5 ? "おやすみなさい" : hour < 12 ? "おはようございます" : hour < 17 ? "こんにちは" : hour < 21 ? "こんばんは" : "おやすみなさい";
@@ -1080,9 +935,7 @@ export default function AppShell() {
 
       return (
         <div className={`${fadeIn}`} style={{fontSize: appearance.fontSize === "sm" ? "13px" : appearance.fontSize === "lg" ? "17px" : "15px"}}>
-          {/* Hero greeting section */}
           <div className="relative overflow-hidden px-5 pt-8 pb-6" style={{background:`linear-gradient(160deg, ${appearance.accentColor}18 0%, ${appearance.accentColor}05 60%, transparent 100%)`}}>
-            {/* Decorative blobs */}
             <div className="absolute top-0 right-0 w-48 h-48 rounded-full opacity-10 pointer-events-none" style={{background:appearance.accentColor, transform:"translate(30%,-30%)"}}/>
             <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full opacity-5 pointer-events-none" style={{background:appearance.accentColor, transform:"translate(-30%,30%)"}}/>
 
@@ -1118,7 +971,6 @@ export default function AppShell() {
               </div>
             </div>
 
-            {/* Progress ring + today summary */}
             <div className="mt-5 flex items-center gap-3">
               <div className="relative w-14 h-14 shrink-0">
                 <svg className="w-14 h-14 -rotate-90" viewBox="0 0 56 56">
@@ -1143,7 +995,6 @@ export default function AppShell() {
           </div>
 
           <div className="px-4 space-y-5 pb-6">
-            {/* Quick stat cards */}
             <div className="grid grid-cols-4 gap-2">
               {[
                 {n:tasks.filter(t=>!t.done).length, label:"残タスク", color:"#3b82f6", icon:"📋"},
@@ -1159,7 +1010,6 @@ export default function AppShell() {
               ))}
             </div>
 
-            {/* Today's tasks */}
             <div>
               <div className="flex items-center justify-between mb-2.5">
                 <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5"><span>📅</span> 今日の予定</h2>
@@ -1194,7 +1044,6 @@ export default function AppShell() {
               }
             </div>
 
-            {/* My tasks */}
             {myTasks.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-2.5">
@@ -1213,7 +1062,6 @@ export default function AppShell() {
               </div>
             )}
 
-            {/* Upcoming */}
             {upcomingTasks.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-2.5">
@@ -1236,7 +1084,6 @@ export default function AppShell() {
               </div>
             )}
 
-            {/* Low stock alert */}
             {lowStockItems.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-2.5">
@@ -1262,7 +1109,6 @@ export default function AppShell() {
               </div>
             )}
 
-            {/* Recent Wiki */}
             {recentWikis.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-2.5">
@@ -1290,7 +1136,6 @@ export default function AppShell() {
               </div>
             )}
 
-            {/* Quick actions */}
             <div>
               <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5 mb-2.5"><span>⚡</span> クイックアクション</h2>
               <div className="grid grid-cols-2 gap-2.5">
@@ -1313,7 +1158,6 @@ export default function AppShell() {
       );
     }
 
-    // ── Schedule ──────────────────────────────────────────────────────────
     if(activeTab==="schedule") return (
       <div className={`p-4 space-y-4 ${fadeIn}`}>
         <div className="grid grid-cols-3 gap-2">
@@ -1330,7 +1174,6 @@ export default function AppShell() {
           {perms.manageTasks&&<button onClick={()=>setShowTaskForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> タスク追加</button>}
         </div>
         <CalendarView tasks={tasks} availability={availability} onDayClick={setSelectedDate} selectedDate={selectedDate}/>
-        {/* Weekly AI overview strip */}
         {(()=>{
           const weekStart = new Date(selectedDate);
           weekStart.setDate(weekStart.getDate()-weekStart.getDay());
@@ -1378,7 +1221,6 @@ export default function AppShell() {
           {myAvailStatus&&<div className="flex gap-2"><input value={availNote} onChange={e=>setAvailNote(e.target.value)} placeholder="コメント" className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"/><button onClick={async()=>{setAvailability(p=>p.map(a=>a.userId===currentUserEmail&&a.date===selectedDate?{...a,note:availNote}:a));try{const sb=createClient();const{data:{user}}=await sb.auth.getUser();if(user)await sb.from('availability').update({note:availNote}).eq('user_id',user.id).eq('date',selectedDate);}catch(e){console.log('note sync err',e);}}} className="bg-blue-100 text-blue-700 text-xs font-bold px-3 rounded-xl">保存</button></div>}
           {selectedAvail.length>0&&<div className="mt-3 space-y-1.5">{selectedAvail.map(a=><div key={a.userId} className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full" style={{background:AVAIL_COLORS[a.status]}}/><span className="font-medium text-gray-700 truncate flex-1">{a.name}</span><span style={{color:AVAIL_COLORS[a.status]}} className="font-bold">{AVAIL_LABELS[a.status]}</span>{a.note&&<span className="text-gray-400 truncate max-w-[80px]">{a.note}</span>}</div>)}</div>}
         </div>
-        {/* AI schedule insight */}
         {tasks.filter(t=>t.date===selectedDate).length>0&&(
           <button onClick={async()=>{
             const dayTasks=tasks.filter(t=>t.date===selectedDate);
@@ -1432,7 +1274,6 @@ export default function AppShell() {
             </div>
           ))}</div>
         }
-        {/* Task detail modal */}
         {taskDetailId&&(()=>{
           const task = tasks.find(t=>t.id===taskDetailId);
           if(!task) return null;
@@ -1440,7 +1281,6 @@ export default function AppShell() {
             <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setTaskDetailId(null)}>
               <div className={`bg-white w-full rounded-t-3xl max-h-[90vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
                 <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mt-3"/>
-                {/* Header */}
                 <div className="px-5 py-4 border-b border-gray-100" style={{borderLeftWidth:4,borderLeftColor:task.color}}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
@@ -1459,22 +1299,18 @@ export default function AppShell() {
                   </div>
                 </div>
                 <div className="p-5 space-y-4">
-                  {/* Description */}
                   {task.description&&(
                     <div className="bg-gray-50 rounded-2xl p-3">
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">説明</p>
                       <p className="text-sm text-gray-700 leading-relaxed">{task.description}</p>
                     </div>
                   )}
-                  {/* Photo */}
                   {task.photo&&<img src={task.photo} alt="task" className="w-full rounded-2xl object-cover max-h-48"/>}
-                  {/* Notes — editable by anyone */}
                   <div>
                     <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">メモ・進捗報告</p>
                     <textarea value={taskEditDesc} onChange={e=>setTaskEditDesc(e.target.value)} rows={3} placeholder="ここに進捗・メモを書く..."
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 resize-none" style={{"--tw-ring-color":task.color} as any}/>
                   </div>
-                  {/* Photo upload */}
                   <div>
                     <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">写真を追加</p>
                     <button onClick={()=>taskPhotoRef.current?.click()}
@@ -1484,7 +1320,6 @@ export default function AppShell() {
                     <input ref={taskPhotoRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>setTaskEditPhoto(r.result as string);r.readAsDataURL(f);}}/>
                     {taskEditPhoto&&<button onClick={()=>setTaskEditPhoto(null)} className="text-xs text-red-500 mt-1">削除</button>}
                   </div>
-                  {/* Assignees */}
                   {task.assignees.length>0&&(
                     <div>
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">担当メンバー</p>
@@ -1499,7 +1334,6 @@ export default function AppShell() {
                       </div>
                     </div>
                   )}
-                  {/* Save button */}
                   <div className="flex gap-2 pt-2">
                     <button onClick={async()=>{
                       setTasks(p=>p.map(t=>t.id===task.id?{...t,notes:taskEditDesc,photo:taskEditPhoto||undefined}:t));
@@ -1535,7 +1369,6 @@ export default function AppShell() {
       </div>
     );
 
-    // ── Inventory ──────────────────────────────────────────────────────────
     if(activeTab==="inventory") return (
       <div className={`p-4 space-y-4 ${fadeIn}`}>
         <div className="flex items-center justify-between">
@@ -1585,7 +1418,6 @@ export default function AppShell() {
       </div>
     );
 
-    // ── Wiki ──────────────────────────────────────────────────────────────
     if(activeTab==="wiki"){
       if(activeWiki) return <WikiPageView page={activeWiki} canEdit={perms.manageWiki} onSave={async(updated)=>{setWikis(p=>p.map(w=>w.id===updated.id?updated:w));setActiveWiki(updated);try{const sb=createClient();await sb.from('wiki_pages').update({title:updated.title,content:updated.content,category:updated.category,updated_at:new Date().toISOString(),views:updated.views}).eq('id',updated.id);}catch(e){console.log('wiki save err',e);}}} onBack={()=>setActiveWiki(null)}/>;
       const fw=wikiFilter==="すべて"?wikis:wikis.filter(w=>w.category===wikiFilter);
@@ -1620,7 +1452,6 @@ export default function AppShell() {
       );
     }
 
-    // ── Members ───────────────────────────────────────────────────────────
     if(activeTab==="members") return (
       <div className={`p-4 space-y-4 ${fadeIn}`}>
         <div className="flex items-center justify-between">
@@ -1628,7 +1459,6 @@ export default function AppShell() {
           <span className="text-xs font-bold px-2.5 py-1 rounded-full text-white" style={{background:appearance.accentColor}}>{members.length}人</span>
         </div>
 
-        {/* Group chat */}
         <button onClick={()=>setGroupOpen(true)} className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5 flex items-center gap-3 hover:shadow-md transition-all active:scale-[0.99]">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style={{background:appearance.accentColor+"22"}}>💬</div>
           <div className="flex-1 text-left">
@@ -1637,8 +1467,6 @@ export default function AppShell() {
           </div>
           <ChevronRight size={16} className="text-gray-300"/>
         </button>
-
-        {/* Members list */}
 
         <div className="space-y-2">
           {(()=>{
@@ -1655,12 +1483,11 @@ export default function AppShell() {
               </div>
             );
             return allMembers.map(member=>{
-              // DB role_id is always authoritative — never trust local memberRoles for display
               const effectiveRoleId = member.role_id ?? "member";
               const role = roles.find(r=>r.id===effectiveRoleId) ?? roles.find(r=>r.id==="member")!;
-            const isOnline = member.online_at && (Date.now()-new Date(member.online_at).getTime()) < 5*60*1000;
-            const isMe = member.email === currentUserEmail;
-            return (
+              const isOnline = member.online_at && (Date.now()-new Date(member.online_at).getTime()) < 5*60*1000;
+              const isMe = member.email === currentUserEmail;
+              return (
               <div key={member.id} className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5 ${fadeIn}`}>
                 <div className="flex items-center gap-3">
                   <div className="relative shrink-0">
@@ -1711,7 +1538,6 @@ export default function AppShell() {
                     )}
                   </div>
                 </div>
-                {/* Inline role picker — expands under the card */}
                 {canManageRoles && roleChangeTarget===member.id&&(
                   <div className="mt-3 pt-3 border-t border-gray-100">
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">ロールを変更</p>
@@ -1733,7 +1559,6 @@ export default function AppShell() {
           })()}
         </div>
 
-        {/* DM panel */}
         {dmOpen&&(
           <div className="fixed inset-0 bg-black/50 z-50 flex flex-col" onClick={()=>setDmOpen(null)}>
             <div className="flex-1"/>
@@ -1778,7 +1603,6 @@ export default function AppShell() {
           </div>
         )}
 
-        {/* Group chat panel */}
         {groupOpen&&(
           <div className="fixed inset-0 bg-black/50 z-50 flex flex-col" onClick={()=>setGroupOpen(false)}>
             <div className="flex-1"/>
@@ -1806,7 +1630,6 @@ export default function AppShell() {
                   );
                 })}
               </div>
-              {/* Mention target preview */}
               {mentionTarget&&(
                 <div className="px-4 py-2 bg-blue-50 border-t border-blue-100 flex items-center gap-2">
                   <AtSign size={12} className="text-blue-500"/><span className="text-xs font-bold text-blue-700">@{mentionTarget.display_name||mentionTarget.email}</span>
@@ -1833,7 +1656,6 @@ export default function AppShell() {
       </div>
     );
 
-    // ── Settings ──────────────────────────────────────────────────────────
     if(activeTab==="settings") {
       const SETTINGS_TABS: {id:SettingsTab; label:string; icon:React.ReactNode}[] = [
         {id:"profile",label:"プロフィール",icon:<User size={14}/>},
@@ -1847,7 +1669,6 @@ export default function AppShell() {
 
       return (
         <div className={`${fadeIn}`}>
-          {/* Settings sidebar nav (horizontal scroll on mobile) */}
           <div className="flex gap-1.5 overflow-x-auto px-4 py-3 border-b border-gray-100 bg-white sticky top-0 z-10">
             {SETTINGS_TABS.map(t=>(
               <button key={t.id} onClick={()=>setSettingsTab(t.id)}
@@ -1859,7 +1680,6 @@ export default function AppShell() {
           </div>
 
           <div className="p-4 space-y-4 pb-10">
-            {/* Profile */}
             {settingsTab==="profile"&&(
               <>
                 <div className="rounded-2xl p-5 flex items-center gap-4" style={{background:`linear-gradient(135deg, ${appearance.accentColor}, ${appearance.accentColor}dd)`}}>
@@ -1902,10 +1722,8 @@ export default function AppShell() {
               </>
             )}
 
-            {/* Roles */}
             {settingsTab==="roles"&&(
               <>
-                {/* ── No-owner bootstrap banner ── */}
                 {noOwner && !imAlreadyOwner &&(
                   <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
                     <div className="flex items-start gap-3">
@@ -1928,11 +1746,18 @@ export default function AppShell() {
                                 placeholder="コードを入力..."
                                 className="flex-1 border border-amber-300 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 font-mono tracking-widest uppercase"
                               />
-                              <button onClick={()=>{
+                              <button onClick={async ()=>{
                                 if(claimOwnerCode==="AEROSYNC"){
                                   setMemberRoles(p=>[...p.filter(m=>m.email!==currentUserEmail),{email:currentUserEmail,roleId:"owner",assignedAt:new Date().toISOString().split("T")[0],assignedBy:"system"}]);
-                                  // Also update members table in DB
-                                  (async()=>{try{const sb=createClient();if(myMemberRecord?.id){await sb.from("members").update({role_id:"owner"}).eq("id",myMemberRecord.id);setMembers(p=>p.map(m=>m.email===currentUserEmail?{...m,role_id:"owner"}:m));}}catch(e){console.log("owner claim err",e);}})();
+                                  if(myMemberRecord?.id){
+                                    setMembers(p=>p.map(m=>m.email===currentUserEmail?{...m,role_id:"owner"}:m));
+                                    try{
+                                      const sb=createClient();
+                                      const { data, error } = await sb.from("members").update({role_id:"owner"}).eq("id",myMemberRecord.id).select();
+                                      if(error) alert(`エラーが発生しました: ${error.message}`);
+                                      else if(!data || data.length===0) alert("DBの更新がブロックされました。RLS（Row Level Security）のUPDATEポリシーを確認してください。");
+                                    }catch(e){console.log("owner claim err",e);}
+                                  }
                                   setShowClaimOwner(false); setClaimOwnerCode("");
                                 } else {
                                   setClaimOwnerError("コードが正しくありません");
@@ -1990,17 +1815,17 @@ export default function AppShell() {
                       <button onClick={async()=>{
                         if(!assignEmail.trim()||!assignRoleId)return;
                         const targetEmail = assignEmail.trim();
-                        // Optimistic update local states
                         setMemberRoles(p=>[...p.filter(m=>m.email!==targetEmail),{email:targetEmail,roleId:assignRoleId,assignedAt:new Date().toISOString().split("T")[0],assignedBy:currentUserEmail}]);
                         setAssignEmail("");
                         setAssignRoleId("");
 
-                        // Sync to DB if member already exists
                         const existingMember = members.find(m => m.email === targetEmail);
                         if (existingMember) {
                           try {
                             const sb = createClient();
-                            await sb.from("members").update({ role_id: assignRoleId }).eq("id", existingMember.id);
+                            const { data, error } = await sb.from("members").update({ role_id: assignRoleId }).eq("id", existingMember.id).select();
+                            if(error) alert(`エラー: ${error.message}`);
+                            else if(!data || data.length===0) alert("DBの更新がブロックされました。RLSポリシーを確認してください。");
                           } catch (e) {
                             console.error("Assign role db error:", e);
                           }
@@ -2008,340 +1833,4 @@ export default function AppShell() {
                       }} className="w-full text-white font-bold py-2.5 rounded-xl text-sm transition-all" style={{background:appearance.accentColor}}>割り当て</button>
                     </div>
                     {memberRoles.length>0&&(
-                      <div className="border-t border-gray-100 p-4 space-y-2">
-                        <p className="text-xs font-bold text-gray-500 mb-2">割り当て済み</p>
-                        {memberRoles.map(m=>{
-                          const r=roles.find(x=>x.id===m.roleId);
-                          return (
-                            <div key={m.email} className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="text-base">{r?.icon}</span>
-                                <div><p className="text-xs font-bold text-gray-800 truncate max-w-[160px]">{m.email}</p><p className="text-[10px] text-gray-400">{r?.name}</p></div>
-                              </div>
-                              <button onClick={()=>setMemberRoles(p=>p.filter(x=>x.email!==m.email))} className="text-gray-300 hover:text-red-400 transition-colors p-1"><X size={13}/></button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Appearance */}
-            {settingsTab==="appearance"&&(
-              <>
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
-                  <SectionHeader title="テーマ"/>
-                  <div className="p-4">
-                    <div className="flex gap-2">
-                      {([{id:"system",label:"自動",icon:<RefreshCw size={14}/>},{id:"light",label:"ライト",icon:<Sun size={14}/>},{id:"dark",label:"ダーク",icon:<Moon size={14}/>}] as const).map(t=>(
-                        <button key={t.id} onClick={()=>setAppearance(p=>({...p,theme:t.id}))}
-                          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${appearance.theme===t.id?"border-blue-500 bg-blue-50 text-blue-700":"border-gray-200 text-gray-500"}`}>
-                          {t.icon}{t.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
-                  <SectionHeader title="アクセントカラー"/>
-                  <div className="p-4">
-                    <div className="flex gap-3 flex-wrap">
-                      {ACCENT_COLORS.map(c=>(
-                        <button key={c} onClick={()=>setAppearance(p=>({...p,accentColor:c}))} style={{background:c}}
-                          className={`w-9 h-9 rounded-full transition-all ${appearance.accentColor===c?"scale-125 ring-2 ring-offset-2 ring-gray-400":""}`}/>
-                      ))}
-                      <input type="color" value={appearance.accentColor} onChange={e=>setAppearance(p=>({...p,accentColor:e.target.value}))} className="w-9 h-9 rounded-full cursor-pointer border-0 p-0"/>
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
-                  <SectionHeader title="文字サイズ"/>
-                  <div className="p-4"><div className="flex gap-2">{([{id:"sm",label:"小"},{id:"md",label:"中"},{id:"lg",label:"大"}] as const).map(t=><button key={t.id} onClick={()=>setAppearance(p=>({...p,fontSize:t.id}))} className={`flex-1 py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${appearance.fontSize===t.id?"border-blue-500 bg-blue-50 text-blue-700":"border-gray-200 text-gray-500"}`}>{t.label}</button>)}</div></div>
-                  <SettingsRow icon={<Wand2 size={15} className="text-purple-600"/>} iconBg="bg-purple-100" title="モーション削減" subtitle="アニメーションを減らす" right={<Toggle checked={appearance.reduceMotion} onChange={v=>setAppearance(p=>({...p,reduceMotion:v}))} activeColor={appearance.accentColor}/>}/>
-                  <SettingsRow icon={<Globe size={15} className="text-blue-600"/>} iconBg="bg-blue-100" title="コンパクトモード" subtitle="より多くの情報を表示" right={<Toggle checked={appearance.compactMode} onChange={v=>setAppearance(p=>({...p,compactMode:v}))} activeColor={appearance.accentColor}/>}/>
-                </div>
-              </>
-            )}
-
-            {/* Notifications */}
-            {settingsTab==="notifications"&&(
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
-                <SectionHeader title="通知設定"/>
-                <SettingsRow icon={notifEnabled?<Bell size={15} className="text-blue-600"/>:<BellOff size={15} className="text-gray-400"/>} iconBg={notifEnabled?"bg-blue-100":"bg-gray-100"} title="プッシュ通知" subtitle={notifEnabled?"通知が有効です":"タップして有効化"} right={<Toggle checked={notifEnabled} onChange={async()=>toggleNotif()} activeColor={appearance.accentColor}/>}/>
-                <SettingsRow icon={<Volume2 size={15} className={soundEnabled?"text-green-600":"text-gray-400"}/>} iconBg={soundEnabled?"bg-green-100":"bg-gray-100"} title="サウンド" subtitle="通知音を再生" right={<Toggle checked={soundEnabled} onChange={setSoundEnabled} activeColor={appearance.accentColor}/>}/>
-                <SettingsRow icon={<Vibrate size={15} className={hapticsEnabled?"text-orange-600":"text-gray-400"}/>} iconBg={hapticsEnabled?"bg-orange-100":"bg-gray-100"} title="バイブレーション" subtitle="触覚フィードバック" right={<Toggle checked={hapticsEnabled} onChange={setHapticsEnabled} activeColor={appearance.accentColor}/>}/>
-                <SettingsRow icon={<Smartphone size={15} className="text-indigo-600"/>} iconBg="bg-indigo-100" title="アプリをインストール" subtitle="ホーム画面に追加してネイティブ体験"/>
-              </div>
-            )}
-
-            {/* Privacy */}
-            {settingsTab==="privacy"&&(
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
-                <SectionHeader title="プライバシー設定"/>
-                <SettingsRow icon={<EyeOffIcon size={15} className="text-gray-600"/>} iconBg="bg-gray-100" title="プライベートモード" subtitle="他のメンバーからプロフィールを隠す" right={<Toggle checked={privateMode} onChange={setPrivateMode} activeColor={appearance.accentColor}/>}/>
-                <SettingsRow icon={<Users size={15} className="text-blue-600"/>} iconBg="bg-blue-100" title="オンラインステータスを表示" subtitle="他のメンバーにオンライン状態を表示" right={<Toggle checked={showOnlineStatus} onChange={setShowOnlineStatus} activeColor={appearance.accentColor}/>}/>
-                <SettingsRow icon={<Star size={15} className="text-yellow-600"/>} iconBg="bg-yellow-100" title="参加状況を公開" subtitle="スケジュールの参加状況を全員に表示" right={<Toggle checked={true} onChange={()=>{}} activeColor={appearance.accentColor}/>}/>
-              </div>
-            )}
-
-            {/* Data */}
-            {settingsTab==="data"&&(
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
-                <SectionHeader title="データ管理"/>
-                <SettingsRow icon={<Download size={15} className="text-blue-600"/>} iconBg="bg-blue-100" title="データをエクスポート" subtitle="JSON形式でダウンロード" onClick={()=>{
-                  const data=JSON.stringify({tasks,inventory,wikis,roles,memberRoles},null,2);
-                  const a=document.createElement("a"); a.href="data:text/json;charset=utf-8,"+encodeURIComponent(data); a.download="aerosync-export.json"; a.click();
-                }}/>
-                <SettingsRow icon={<Upload size={15} className="text-green-600"/>} iconBg="bg-green-100" title="データをインポート" subtitle="JSONファイルから復元"/>
-                <SettingsRow icon={<Copy size={15} className="text-purple-600"/>} iconBg="bg-purple-100" title="データをコピー" subtitle="クリップボードにコピー" onClick={()=>{navigator.clipboard.writeText(JSON.stringify({tasks,inventory,wikis},null,2)).catch(()=>{});}}/>
-                {perms.manageTasks&&<SettingsRow icon={<Trash2 size={15} className="text-red-500"/>} iconBg="bg-red-100" title="全データをリセット" subtitle="削除されたデータは復元できません" danger onClick={()=>{if(confirm("全データをリセットしますか？")){setTasks([]);setInventory([]);setWikis([]);}}}/>}
-              </div>
-            )}
-
-            {/* About */}
-            {settingsTab==="about"&&(
-              <>
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
-                  <SectionHeader title="アプリ情報"/>
-                  <SettingsRow icon={<Star size={15} className="text-yellow-500"/>} iconBg="bg-yellow-100" title="バージョン" subtitle="AeroSync v2.0.0"/>
-                  <SettingsRow icon={<Globe size={15} className="text-blue-600"/>} iconBg="bg-blue-100" title="Webサイト" subtitle="aerosync.soarahpa.com" onClick={()=>window.open("https://aerosync.soarahpa.com")}/>
-                  <SettingsRow icon={<HelpCircle size={15} className="text-purple-600"/>} iconBg="bg-purple-100" title="ヘルプ & サポート" subtitle="Wikiのガイドを参照" onClick={()=>{setActiveTab("wiki");const guide=wikis.find(w=>w.title.includes("ガイド"));if(guide)setActiveWiki(guide);}}/>
-                  <SettingsRow icon={<RotateCcw size={15} className="text-orange-600"/>} iconBg="bg-orange-100" title="キャッシュをクリア" subtitle="サービスワーカーを更新" onClick={()=>{navigator.serviceWorker.getRegistrations().then(regs=>regs.forEach(r=>r.unregister())); window.location.reload();}}/>
-                </div>
-                <button onClick={handleLogout} className="w-full bg-white border border-gray-200 rounded-2xl py-3.5 flex items-center justify-center gap-2 text-red-500 font-bold text-sm hover:bg-red-50 transition-colors shadow-sm">
-                  <LogOut size={16}/> ログアウト
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      <style>{`
-        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes slideUp { from{opacity:0;transform:translateY(40px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
-        @keyframes scaleIn { from{opacity:0;transform:scale(0.85) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
-        @keyframes floatPulse { 0%,100%{transform:scale(1) translateY(0);box-shadow:0 8px 32px rgba(37,99,235,0.4)} 50%{transform:scale(1.06) translateY(-2px);box-shadow:0 12px 40px rgba(37,99,235,0.55)} }
-        @keyframes tooltipIn { from{opacity:0;transform:translateX(-50%) translateY(4px) scale(0.95)} to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)} }
-        @keyframes ripple { from{transform:scale(0.8);opacity:1} to{transform:scale(2.2);opacity:0} }
-        @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-      `}</style>
-
-      {/* Particle effect for current user's visual effect */}
-      <ParticleEffect effect={myVisualEffect}/>
-
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 py-3 flex items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center shadow-sm" style={{background:appearance.accentColor}}><span className="text-white text-[10px] font-black">AS</span></div>
-          <h1 className="text-base font-black tracking-tight">Aero<span style={{color:appearance.accentColor}}>Sync</span></h1>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <VisualEffectWrapper effect={myRoleData?.visualEffect||"none"}>
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:myRoleData?.color+"22",color:myRoleData?.color,border:`1px solid ${myRoleData?.color}44`}}>
-              {myRoleData?.icon} {myRoleData?.name}
-            </span>
-          </VisualEffectWrapper>
-          <button onClick={()=>setNotifOpen(true)} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-all active:scale-90 relative">
-            <BellRing size={18} className="text-gray-500"/>
-            {unreadCount>0&&<span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full text-[9px] font-black text-white flex items-center justify-center" style={{background:appearance.accentColor}}>{unreadCount>9?"9+":unreadCount}</span>}
-          </button>
-          <button onClick={()=>setSearchOpen(true)} className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-all active:scale-90">
-            <Search size={18} className="text-gray-500"/>
-          </button>
-        </div>
-      </header>
-
-      {/* Auto-update banner */}
-      {updateAvailable&&(
-        <div className="px-4 py-2.5 text-xs font-bold flex items-center gap-2 border-b z-40 relative" style={{background:appearance.accentColor,color:"white"}}>
-          <RefreshCw size={13} className="shrink-0 animate-spin"/>
-          <span className="flex-1">新しいバージョンが利用可能です</span>
-          <button onClick={()=>window.location.reload()}
-            className="bg-white rounded-lg px-2.5 py-1 font-black text-xs transition-all active:scale-95"
-            style={{color:appearance.accentColor}}>
-            今すぐ更新
-          </button>
-          <button onClick={()=>setUpdateAvailable(false)} className="opacity-70 hover:opacity-100"><X size={13}/></button>
-        </div>
-      )}
-
-      {errorMessage&&(
-        <div className="bg-red-50 text-red-700 px-4 py-2.5 text-xs font-medium flex items-start gap-2 border-b border-red-100">
-          <ShieldAlert size={14} className="shrink-0 mt-0.5"/><span className="flex-1 break-all">{errorMessage}</span>
-          <button onClick={()=>setErrorMessage(null)}><X size={14}/></button>
-        </div>
-      )}
-
-      <main className="flex-1 overflow-y-auto pb-20 overscroll-none">{renderContent()}</main>
-
-      {/* Nav */}
-      <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-gray-100 z-30" style={{paddingBottom:"env(safe-area-inset-bottom)"}}>
-        <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
-          {([{id:"home",Icon:Home,label:"ホーム"},{id:"schedule",Icon:Calendar,label:"予定"},{id:"inventory",Icon:Package,label:"在庫"},{id:"members",Icon:Users,label:"メンバー"},{id:"settings",Icon:Settings,label:"設定"}] as const).map(({id,Icon,label})=>(
-            <button key={id} onClick={()=>{setActiveTab(id);setActiveWiki(null);}} className="flex flex-col items-center justify-center w-full h-full gap-0.5 transition-all duration-200" style={{color:activeTab===id?appearance.accentColor:"#9ca3af"}}>
-              <div className="p-1.5 rounded-xl transition-all duration-200" style={activeTab===id?{background:appearance.accentColor+"22"}:{}}>
-                <Icon size={20} strokeWidth={activeTab===id?2.5:1.8}/>
-              </div>
-              <span className="text-[10px] font-bold">{label}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
-
-      {/* Floating AI button */}
-      {!chatOpen&&(
-        <button onClick={()=>setChatOpen(true)} style={{animation:"floatPulse 3s ease-in-out infinite",background:appearance.accentColor}} className="fixed bottom-24 right-4 z-40 w-14 h-14 rounded-2xl flex items-center justify-center shadow-2xl active:scale-90 transition-transform" aria-label="AI">
-          <div className="absolute inset-0 rounded-2xl opacity-30" style={{background:appearance.accentColor,animation:"ripple 2.5s ease-out infinite"}}/>
-          <Sparkles size={22} className="text-white relative z-10"/>
-        </button>
-      )}
-
-      {/* Chat panel */}
-      {chatOpen&&(
-        <div className="fixed inset-0 z-50 flex items-end justify-end pointer-events-none">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm pointer-events-auto" onClick={()=>setChatOpen(false)}/>
-          <div className="relative pointer-events-auto w-full max-w-sm mx-auto mb-0 sm:mb-6 sm:mr-6 bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-blue-100" style={{height:"72vh",maxHeight:"600px",animation:"scaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1)"}}>
-            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 shrink-0" style={{background:`linear-gradient(135deg, ${appearance.accentColor}, ${appearance.accentColor}cc)`}}>
-              <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center"><Sparkles size={16} className="text-white"/></div>
-              <div className="flex-1"><p className="text-sm font-black text-white">AeroSync AI</p><p className="text-[10px] text-white/70">Gemini 2.5 Pro ✦ 検索対応</p></div>
-              <button onClick={()=>setChatOpen(false)} className="w-7 h-7 bg-white/20 rounded-lg flex items-center justify-center hover:bg-white/30 transition-colors"><X size={14} className="text-white"/></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/50">
-              {chatMessages.length===0&&(
-                <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-6">
-                  <p className="font-bold text-gray-700 text-sm">何でも聞いてください</p>
-                  <p className="text-xs text-gray-400 max-w-[200px]">テキストを選択して「AIに聞く」も使えます</p>
-                  <div className="space-y-2 w-full mt-2">
-                    {["今日のタスクを教えて","在庫が少ないものは？","ロールの使い方は？"].map(q=>(
-                      <button key={q} onClick={()=>setChatInput(q)} className="w-full text-xs bg-white border border-gray-200 rounded-xl px-3 py-2 text-gray-600 hover:border-blue-300 hover:bg-blue-50 transition-all text-left flex items-center gap-2 shadow-sm">
-                        <MessageCircle size={12} className="shrink-0" style={{color:appearance.accentColor}}/>{q}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {chatMessages.map((m,i)=>(
-                <div key={i} className={`flex gap-2 ${m.role==="user"?"flex-row-reverse":""}`} style={{animation:"fadeIn 0.25s ease-out"}}>
-                  <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={m.role==="assistant"?{background:appearance.accentColor}:{background:"#e5e7eb"}}>
-                    {m.role==="assistant"?<Bot size={12} className="text-white"/>:<span className="text-[10px] font-bold text-gray-600">{displayName.charAt(0).toUpperCase()}</span>}
-                  </div>
-                  <div className={`max-w-[82%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${m.role==="user"?"rounded-tr-sm":"bg-white border border-gray-100 shadow-sm rounded-tl-sm"}`} style={m.role==="user"?{background:appearance.accentColor,color:"#ffffff"}:{color:"#1f2937"}}>
-                    {m.content}
-                  </div>
-                </div>
-              ))}
-              {chatLoading&&(
-                <div className="flex gap-2">
-                  <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{background:appearance.accentColor}}><Bot size={12} className="text-white"/></div>
-                  <div className="bg-white border border-gray-100 rounded-2xl rounded-tl-sm px-3 py-2.5 shadow-sm flex gap-1 items-center">
-                    {[0,1,2].map(i=><div key={i} className="w-1.5 h-1.5 rounded-full animate-bounce" style={{animationDelay:`${i*0.15}s`,background:appearance.accentColor}}/>)}
-                  </div>
-                </div>
-              )}
-              <div ref={chatEndRef}/>
-            </div>
-            <div className="p-3 bg-white border-t border-gray-100 flex gap-2 shrink-0">
-              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();sendChat();}}} placeholder="メッセージを入力..." className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:bg-white transition resize-none" style={{"--tw-ring-color":appearance.accentColor} as any}/>
-              <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition-all active:scale-95 shadow-sm" style={{background:appearance.accentColor}}>
-                <Send size={14}/>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Selection tooltip */}
-      {selectionTooltip&&(
-        <div data-selection-tooltip="true" style={{position:"fixed",left:selectionTooltip.x,top:selectionTooltip.y,transform:"translateX(-50%) translateY(-100%)",zIndex:60,animation:"tooltipIn 0.2s ease-out",pointerEvents:"auto"}}>
-          <button onMouseDown={e=>{e.preventDefault(); const q=`次のテキストについて教えてください: "${selectionTooltip.text.slice(0,200)}"`; pendingSendRef.current=true; setChatInput(q); setChatOpen(true); setSelectionTooltip(null); window.getSelection()?.removeAllRanges();}}
-            className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xl whitespace-nowrap transition-colors" style={{background:"#111827"}}>
-            <Sparkles size={11}/> AIに聞く
-          </button>
-          <div className="w-2.5 h-2.5 rotate-45 mx-auto -mt-1.5 rounded-sm" style={{background:"#111827"}}/>
-        </div>
-      )}
-
-      {/* Notification panel */}
-      {notifOpen&&(
-        <div className="fixed inset-0 bg-black/50 z-50 flex flex-col" onClick={()=>setNotifOpen(false)}>
-          <div className="flex-1"/>
-          <div className={`bg-white rounded-t-3xl max-h-[70vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
-            <div className="sticky top-0 bg-white flex items-center justify-between px-4 py-3.5 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <BellRing size={16} style={{color:appearance.accentColor}}/>
-                <h3 className="font-black text-gray-900">通知</h3>
-                {unreadCount>0&&<span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{background:appearance.accentColor}}>{unreadCount}</span>}
-              </div>
-              <div className="flex items-center gap-2">
-                {unreadCount>0&&<button onClick={()=>setNotifications(p=>p.map(n=>({...n,read:true})))} className="text-xs font-bold" style={{color:appearance.accentColor}}>すべて既読</button>}
-                <button onClick={()=>setNotifOpen(false)} className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center"><X size={13} className="text-gray-500"/></button>
-              </div>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {notifications.length===0&&<div className="text-center py-10"><p className="text-2xl mb-2">🔔</p><p className="text-sm text-gray-400">通知はありません</p></div>}
-              {notifications.map(n=>(
-                <div key={n.id} onClick={()=>setNotifications(p=>p.map(x=>x.id===n.id?{...x,read:true}:x))}
-                  className={`flex items-start gap-3 px-4 py-3.5 cursor-pointer transition-colors ${n.read?"":"bg-blue-50/50"}`}>
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-lg mt-0.5" style={{background:appearance.accentColor+"22"}}>
-                    {n.type==="mention"?"@":n.type==="message"?"💬":n.type==="task_assigned"?"📋":"🔔"}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-bold ${n.read?"text-gray-600":"text-gray-900"}`}>{n.title}</p>
-                    {n.body&&<p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.body}</p>}
-                    <p className="text-[10px] text-gray-400 mt-1">{new Date(n.created_at).toLocaleString("ja-JP",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</p>
-                  </div>
-                  {!n.read&&<div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{background:appearance.accentColor}}/>}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Search */}
-      {searchOpen&&(
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex flex-col" onClick={()=>setSearchOpen(false)}>
-          <div className="bg-white w-full p-4 shadow-2xl" style={{animation:"slideUp 0.3s ease-out"}} onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center gap-3 bg-gray-100 rounded-2xl px-4 py-2.5">
-              <Search size={18} className="text-gray-400 shrink-0"/>
-              <input ref={searchRef} value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="タスク、機材、Wikiを検索..." className="flex-1 bg-transparent text-sm focus:outline-none text-gray-800 placeholder-gray-400"/>
-              <button onClick={()=>{setSearchOpen(false);setSearchQuery("");}}><X size={18} className="text-gray-400"/></button>
-            </div>
-            {searchResults.length>0&&(
-              <div className="mt-3 space-y-1 max-h-72 overflow-y-auto">
-                {searchResults.map((r,i)=>(
-                  <button key={i} onClick={()=>{setActiveTab(r.tab);setSearchOpen(false);setSearchQuery("");if(r.wiki)setActiveWiki(r.wiki);}} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors text-left">
-                    <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{background:r.color+"22"}}>
-                      {r.type==="task"?<Calendar size={14} style={{color:r.color}}/>:r.type==="inventory"?<Package size={14} style={{color:r.color}}/>:<BookOpen size={14} style={{color:r.color}}/>}
-                    </div>
-                    <div className="flex-1 min-w-0"><p className="text-sm font-bold text-gray-900 truncate">{r.label}</p><p className="text-xs text-gray-400">{r.sub}</p></div>
-                    <ChevronRight size={14} className="text-gray-300 shrink-0"/>
-                  </button>
-                ))}
-              </div>
-            )}
-            {searchQuery.trim().length>0&&searchResults.length===0&&<p className="text-center text-sm text-gray-400 py-6">「{searchQuery}」の結果が見つかりません</p>}
-          </div>
-        </div>
-      )}
-
-      {/* Role editor */}
-      {editingRole&&(
-        <RoleEditor role={editingRole} onSave={saveRole} onClose={()=>setEditingRole(null)} onDelete={editingRole.isDefault?undefined:()=>deleteRole(editingRole.id)}/>
-      )}
-      {showNewRoleForm&&(
-        <RoleEditor role={{id:Date.now().toString(),name:"新しいロール",color:"#3b82f6",icon:"👤",permissions:{...DEFAULT_PERMISSIONS},isDefault:false,visualEffect:"none",createdAt:new Date().toISOString().split("T")[0]}}
-          onSave={saveRole} onClose={()=>setShowNewRoleForm(false)}/>
-      )}
-    </div>
-  );
-}
+                      <div className="border-t border-gray-100 p-
