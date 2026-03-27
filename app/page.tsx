@@ -338,6 +338,40 @@ export default function AppShell() {
   const [groupInput, setGroupInput] = useState("");
   const [groupOpen, setGroupOpen] = useState(false);
 
+  const [mentionTarget, setMentionTarget] = useState<Member|null>(null);
+  const [roleChangeTarget, setRoleChangeTarget] = useState<string|null>(null);
+  const [taskDetailId, setTaskDetailId] = useState<string|null>(null);
+  const [taskEditDesc, setTaskEditDesc] = useState("");
+  const [taskEditPhoto, setTaskEditPhoto] = useState<string|null>(null);
+  const taskPhotoRef = useRef<HTMLInputElement>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const unreadCount = notifications.filter(n=>!n.read).length;
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+
+  // ── 修正箇所: ここで変数を定義 ───────────────────────────────────────────
+  const userProfile = session?.user?.user_metadata ?? {};
+  const displayName = userProfile?.full_name ?? session?.user?.email ?? "ユーザー";
+  const currentUserEmail = session?.user?.email ?? userProfile?.full_name ?? "me";
+
+  const myMemberRecord = members.find(m=>m.email===currentUserEmail);
+  const myLocalRole = memberRoles.find(m=>m.email===currentUserEmail);
+  const myEffectiveRoleId = myMemberRecord?.role_id ?? myLocalRole?.roleId ?? "member";
+  const myRoleData = roles.find(r=>r.id===myEffectiveRoleId) ?? roles.find(r=>r.id==="member")!;
+  const perms = myRoleData?.permissions ?? DEFAULT_PERMISSIONS;
+  const canManageRoles = perms.manageRoles || perms.manageMembers;
+  const membersLoaded = members.length > 0;
+  const noOwner = membersLoaded && !members.some(m=>m.role_id==="owner") && !memberRoles.some(m=>m.roleId==="owner");
+  const imAlreadyOwner = myEffectiveRoleId==="owner";
+
+  const selectedTasks = tasks.filter(t=>t.date===selectedDate);
+  const selectedAvail = availability.filter(a=>a.date===selectedDate);
+
+  const completedTasks = tasks.filter(t=>t.done).length;
+  const todayTasks = tasks.filter(t=>t.date===new Date().toISOString().split("T")[0]);
+  const lowStock = inventory.filter(i=>i.stock<i.total*0.3);
+  // ──────────────────────────────────────────────────────────────────────────
+
   useEffect(()=>{
     if(!groupOpen)return;
     const load=async()=>{
@@ -355,35 +389,6 @@ export default function AppShell() {
     };
     load();
   },[groupOpen]);
-
-  const [mentionTarget, setMentionTarget] = useState<Member|null>(null);
-  const [roleChangeTarget, setRoleChangeTarget] = useState<string|null>(null);
-  const [taskDetailId, setTaskDetailId] = useState<string|null>(null);
-  const [taskEditDesc, setTaskEditDesc] = useState("");
-  const [taskEditPhoto, setTaskEditPhoto] = useState<string|null>(null);
-  const taskPhotoRef = useRef<HTMLInputElement>(null);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const unreadCount = notifications.filter(n=>!n.read).length;
-  const [updateAvailable, setUpdateAvailable] = useState(false);
-
-  // --- 修正箇所: ここで userProfile や displayName を定義 ---
-  const userProfile = session?.user?.user_metadata ?? {};
-  const displayName = userProfile?.full_name ?? session?.user?.email ?? "ユーザー";
-  const currentUserEmail = session?.user?.email ?? userProfile?.full_name ?? "me";
-
-  const myMemberRecord = members.find(m=>m.email===currentUserEmail);
-  const myLocalRole = memberRoles.find(m=>m.email===currentUserEmail);
-  const myEffectiveRoleId = myMemberRecord?.role_id ?? myLocalRole?.roleId ?? "member";
-  const myRoleData = roles.find(r=>r.id===myEffectiveRoleId) ?? roles.find(r=>r.id==="member")!;
-  const perms = myRoleData?.permissions ?? DEFAULT_PERMISSIONS;
-  const canManageRoles = perms.manageRoles || perms.manageMembers;
-  const membersLoaded = members.length > 0;
-  const noOwner = membersLoaded && !members.some(m=>m.role_id==="owner") && !memberRoles.some(m=>m.roleId==="owner");
-  const imAlreadyOwner = myEffectiveRoleId==="owner";
-
-  const selectedTasks = tasks.filter(t=>t.date===selectedDate);
-  const selectedAvail = availability.filter(a=>a.date===selectedDate);
 
   useEffect(() => {
     setIsMounted(true);
@@ -474,6 +479,7 @@ export default function AppShell() {
 
         const { data: { user: u } } = await supabase.auth.getUser();
         if (u) {
+          // Use upsert to make sure row exists safely
           await supabase.from("members").upsert({
             id: u.id, email: u.email,
             display_name: u.user_metadata?.full_name || u.email,
@@ -580,6 +586,7 @@ export default function AppShell() {
   };
   const handleLogout = async()=>{ const s=createClient(); await s.auth.signOut(); };
 
+  // ── DB Sync Functions for Roles (Pessimistic Update) ─────────────────────
   const updateMemberRole = async (memberId: string, newRoleId: string) => {
     if (!canManageRoles) return;
     const member = members.find(m => m.id === memberId);
@@ -598,6 +605,7 @@ export default function AppShell() {
         return;
       }
 
+      // DBの成功を確認してからUIに反映
       setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role_id: newRoleId } : m));
       if (member.email) {
         setMemberRoles(prev => [
@@ -634,6 +642,7 @@ export default function AppShell() {
         if (!data || data.length === 0) { alert("ロール更新がブロックされました。roles テーブルの RLSポリシーを確認してください。"); return; }
       }
 
+      // 成功後にUI更新
       setRoles(prev => isNew ? [...prev, role] : prev.map(r => r.id === role.id ? role : r));
       setEditingRole(null);
       setShowNewRoleForm(false);
