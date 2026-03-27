@@ -367,7 +367,10 @@ export default function AppShell() {
   const unreadCount = notifications.filter(n=>!n.read).length;
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
-  const currentUserEmail = session?.user?.email ?? session?.user?.user_metadata?.full_name ?? "me";
+  // --- 修正箇所: ここで userProfile や displayName を定義 ---
+  const userProfile = session?.user?.user_metadata ?? {};
+  const displayName = userProfile?.full_name ?? session?.user?.email ?? "ユーザー";
+  const currentUserEmail = session?.user?.email ?? userProfile?.full_name ?? "me";
 
   const myMemberRecord = members.find(m=>m.email===currentUserEmail);
   const myLocalRole = memberRoles.find(m=>m.email===currentUserEmail);
@@ -378,6 +381,9 @@ export default function AppShell() {
   const membersLoaded = members.length > 0;
   const noOwner = membersLoaded && !members.some(m=>m.role_id==="owner") && !memberRoles.some(m=>m.roleId==="owner");
   const imAlreadyOwner = myEffectiveRoleId==="owner";
+
+  const selectedTasks = tasks.filter(t=>t.date===selectedDate);
+  const selectedAvail = availability.filter(a=>a.date===selectedDate);
 
   useEffect(() => {
     setIsMounted(true);
@@ -468,7 +474,6 @@ export default function AppShell() {
 
         const { data: { user: u } } = await supabase.auth.getUser();
         if (u) {
-          // Use upsert to make sure row exists safely
           await supabase.from("members").upsert({
             id: u.id, email: u.email,
             display_name: u.user_metadata?.full_name || u.email,
@@ -575,7 +580,6 @@ export default function AppShell() {
   };
   const handleLogout = async()=>{ const s=createClient(); await s.auth.signOut(); };
 
-  // ── DB Sync Functions for Roles (Pessimistic Update) ─────────────────────
   const updateMemberRole = async (memberId: string, newRoleId: string) => {
     if (!canManageRoles) return;
     const member = members.find(m => m.id === memberId);
@@ -594,7 +598,6 @@ export default function AppShell() {
         return;
       }
 
-      // DBの成功を確認してからUIに反映
       setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role_id: newRoleId } : m));
       if (member.email) {
         setMemberRoles(prev => [
@@ -631,7 +634,6 @@ export default function AppShell() {
         if (!data || data.length === 0) { alert("ロール更新がブロックされました。roles テーブルの RLSポリシーを確認してください。"); return; }
       }
 
-      // 成功後にUI更新
       setRoles(prev => isNew ? [...prev, role] : prev.map(r => r.id === role.id ? role : r));
       setEditingRole(null);
       setShowNewRoleForm(false);
@@ -792,10 +794,6 @@ export default function AppShell() {
     ...wikis.filter(w=>w.title.includes(searchQuery)||w.content.includes(searchQuery)).map(w=>({type:"wiki",label:w.title,sub:w.category,tab:"wiki" as Tab,color:"#8b5cf6",wiki:w})),
   ];
 
-  const completedTasks = tasks.filter(t=>t.done).length;
-  const todayTasks = tasks.filter(t=>t.date===new Date().toISOString().split("T")[0]);
-  const lowStock = inventory.filter(i=>i.stock<i.total*0.3);
-
   if(!isMounted||session===undefined) return (
     <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="flex flex-col items-center gap-4">
@@ -878,7 +876,7 @@ export default function AppShell() {
                 <div className="flex items-center gap-2 mb-1">
                   <VisualEffectWrapper effect={myVisualEffect}>
                     <h1 className="text-2xl font-black text-gray-900 tracking-tight truncate">
-                      {(userProfile?.full_name ?? session.user?.email ?? "ユーザー").split("@")[0]}
+                      {displayName.split("@")[0]}
                     </h1>
                   </VisualEffectWrapper>
                 </div>
@@ -898,7 +896,7 @@ export default function AppShell() {
                 {userProfile?.avatar_url
                   ? <img src={userProfile.avatar_url} alt="avatar" className="w-16 h-16 rounded-2xl shadow-lg" style={{outline:`3px solid ${appearance.accentColor}44`,outlineOffset:"2px"}}/>
                   : <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-black text-white shadow-lg" style={{background:`linear-gradient(135deg, ${appearance.accentColor}, ${appearance.accentColor}bb)`}}>
-                      {(userProfile?.full_name ?? session.user?.email ?? "U").charAt(0).toUpperCase()}
+                      {(displayName).charAt(0).toUpperCase()}
                     </div>
                 }
               </div>
@@ -1699,7 +1697,6 @@ export default function AppShell() {
                                     } else if (!data || data.length === 0) {
                                       alert("データベースの更新がブロックされました。Supabaseで public.members テーブルのRLSポリシー（UPDATE / INSERT権限）を許可してください。");
                                     } else {
-                                      // DB成功後にローカルを更新
                                       setMembers(p=>p.map(m=>m.email===currentUserEmail?{...m,role_id:"owner"}:m));
                                       setMemberRoles(p=>[...p.filter(m=>m.email!==currentUserEmail),{email:currentUserEmail,roleId:"owner",assignedAt:new Date().toISOString().split("T")[0],assignedBy:"system"}]);
                                       setShowClaimOwner(false); setClaimOwnerCode("");
@@ -1776,7 +1773,6 @@ export default function AppShell() {
                           }
                         }
 
-                        // DB成功後
                         setMemberRoles(p=>[...p.filter(m=>m.email!==targetEmail),{email:targetEmail,roleId:assignRoleId,assignedAt:new Date().toISOString().split("T")[0],assignedBy:currentUserEmail}]);
                         setAssignEmail("");
                         setAssignRoleId("");
