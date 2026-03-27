@@ -374,7 +374,6 @@ export default function AppShell() {
   const myEffectiveRoleId = myMemberRecord?.role_id ?? myLocalRole?.roleId ?? "member";
   const myRoleData = roles.find(r=>r.id===myEffectiveRoleId) ?? roles.find(r=>r.id==="member")!;
   const perms = myRoleData?.permissions ?? DEFAULT_PERMISSIONS;
-  const isAdmin = perms.manageTasks || perms.manageInventory || perms.manageWiki;
   const canManageRoles = perms.manageRoles || perms.manageMembers;
   const membersLoaded = members.length > 0;
   const noOwner = membersLoaded && !members.some(m=>m.role_id==="owner") && !memberRoles.some(m=>m.roleId==="owner");
@@ -469,13 +468,14 @@ export default function AppShell() {
 
         const { data: { user: u } } = await supabase.auth.getUser();
         if (u) {
+          // Use upsert to make sure row exists safely
           await supabase.from("members").upsert({
             id: u.id, email: u.email,
             display_name: u.user_metadata?.full_name || u.email,
             avatar_url: u.user_metadata?.avatar_url,
             discord_id: u.user_metadata?.provider_id,
             online_at: new Date().toISOString(),
-          });
+          }, { onConflict: "id" });
         }
       } catch(e) { console.error("[AeroSync] Supabase init failed:", e); }
     };
@@ -518,9 +518,7 @@ export default function AppShell() {
 
     const notifSub = supabase.channel("notif_changes").on("postgres_changes",{event:"INSERT",schema:"public",table:"notifications"},(payload)=>{
       setNotifications(p=>[payload.new as AppNotification,...p]);
-      if(typeof Notification!=="undefined"&&Notification.permission==="granted") {
-        new Notification(payload.new.title,{body:payload.new.body,icon:"/icons/icon-192.png"});
-      }
+      if(typeof Notification!=="undefined"&&Notification.permission==="granted") new Notification(payload.new.title,{body:payload.new.body,icon:"/icons/icon-192.png"});
     }).subscribe();
 
     const rolesSub = supabase.channel("roles_changes").on("postgres_changes",{event:"*",schema:"public",table:"roles"},(payload)=>{
@@ -532,9 +530,7 @@ export default function AppShell() {
         const r = payload.new;
         setRoles(p=>p.map(x=>x.id===r.id?{ ...x, name:r.name, color:r.color, icon:r.icon, permissions:r.permissions||DEFAULT_PERMISSIONS, visualEffect:r.visual_effect||"none" }:x));
       }
-      if(payload.eventType==="DELETE") {
-        setRoles(p=>p.filter(x=>x.id!==(payload.old as any).id));
-      }
+      if(payload.eventType==="DELETE") setRoles(p=>p.filter(x=>x.id!==(payload.old as any).id));
     }).subscribe();
 
     return () => {
@@ -579,32 +575,37 @@ export default function AppShell() {
   };
   const handleLogout = async()=>{ const s=createClient(); await s.auth.signOut(); };
 
+  // ── DB Sync Functions for Roles (Pessimistic Update) ─────────────────────
   const updateMemberRole = async (memberId: string, newRoleId: string) => {
     if (!canManageRoles) return;
     const member = members.find(m => m.id === memberId);
     if (!member) return;
-
-    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role_id: newRoleId } : m));
-    if (member.email) {
-      setMemberRoles(prev => [
-        ...prev.filter(mr => mr.email !== member.email),
-        { email: member.email, roleId: newRoleId, assignedAt: new Date().toISOString(), assignedBy: currentUserEmail }
-      ]);
-    }
-    setRoleChangeTarget(null);
 
     try {
       const supabase = createClient();
       const { data, error } = await supabase.from("members").update({ role_id: newRoleId }).eq("id", memberId).select();
       
       if (error) {
-        console.error("role update err:", error);
         alert(`ロールの更新エラー: ${error.message}`);
-      } else if (!data || data.length === 0) {
-        alert("DBの更新がブロックされました。Supabaseの RLSポリシー（Row Level Security）で members テーブルの UPDATE権限 が許可されているか確認してください。");
+        return;
+      } 
+      if (!data || data.length === 0) {
+        alert("データベースの更新がブロックされました。Supabaseで public.members テーブルの RLSポリシー（UPDATE権限）が許可されているか確認してください。");
+        return;
       }
+
+      // DBの成功を確認してからUIに反映
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role_id: newRoleId } : m));
+      if (member.email) {
+        setMemberRoles(prev => [
+          ...prev.filter(mr => mr.email !== member.email),
+          { email: member.email, roleId: newRoleId, assignedAt: new Date().toISOString(), assignedBy: currentUserEmail }
+        ]);
+      }
+      setRoleChangeTarget(null);
     } catch (e) {
       console.error("role update catch err:", e);
+      alert("予期せぬエラーが発生しました");
     }
   };
 
@@ -612,10 +613,6 @@ export default function AppShell() {
     if (!canManageRoles) return;
     const isNew = !roles.find(r => r.id === role.id);
     
-    setRoles(prev => isNew ? [...prev, role] : prev.map(r => r.id === role.id ? role : r));
-    setEditingRole(null);
-    setShowNewRoleForm(false);
-
     try {
       const supabase = createClient();
       if (isNew) {
@@ -623,27 +620,33 @@ export default function AppShell() {
           id: role.id, name: role.name, color: role.color, icon: role.icon,
           permissions: role.permissions, is_default: role.isDefault, visual_effect: role.visualEffect
         }).select();
-        if(error) alert(`ロールの作成エラー: ${error.message}`);
-        else if (!data || data.length === 0) alert("ロール作成がブロックされました。roles テーブルの RLSポリシーを確認してください。");
+        if(error) { alert(`作成エラー: ${error.message}`); return; }
+        if (!data || data.length === 0) { alert("ロール作成がブロックされました。roles テーブルの RLSポリシーを確認してください。"); return; }
       } else {
         const { data, error } = await supabase.from("roles").update({
           name: role.name, color: role.color, icon: role.icon,
           permissions: role.permissions, is_default: role.isDefault, visual_effect: role.visualEffect
         }).eq("id", role.id).select();
-        if(error) alert(`ロールの更新エラー: ${error.message}`);
-        else if (!data || data.length === 0) alert("ロール更新がブロックされました。roles テーブルの RLSポリシーを確認してください。");
+        if(error) { alert(`更新エラー: ${error.message}`); return; }
+        if (!data || data.length === 0) { alert("ロール更新がブロックされました。roles テーブルの RLSポリシーを確認してください。"); return; }
       }
+
+      // 成功後にUI更新
+      setRoles(prev => isNew ? [...prev, role] : prev.map(r => r.id === role.id ? role : r));
+      setEditingRole(null);
+      setShowNewRoleForm(false);
     } catch(e) { console.error("Role save error:", e); }
   };
 
   const deleteRole = async (roleId: string) => {
     if (!canManageRoles) return;
-    setRoles(prev => prev.filter(r => r.id !== roleId));
-    setEditingRole(null);
     try {
       const supabase = createClient();
       const { error } = await supabase.from("roles").delete().eq("id", roleId);
-      if(error) alert(`ロール削除エラー: ${error.message}`);
+      if(error) { alert(`削除エラー: ${error.message}`); return; }
+      
+      setRoles(prev => prev.filter(r => r.id !== roleId));
+      setEditingRole(null);
     } catch(e) { console.error("Role delete error:", e); }
   };
 
@@ -849,11 +852,6 @@ export default function AppShell() {
       </div>
     </div>
   );
-
-  const userProfile = session.user?.user_metadata??{};
-  const displayName = userProfile?.full_name??session.user?.email??"ユーザー";
-  const selectedTasks = tasks.filter(t=>t.date===selectedDate);
-  const selectedAvail = availability.filter(a=>a.date===selectedDate);
 
   const renderContent = () => {
     if(activeTab==="home") {
@@ -1683,17 +1681,31 @@ export default function AppShell() {
                               />
                               <button onClick={async ()=>{
                                 if(claimOwnerCode==="AEROSYNC"){
-                                  setMemberRoles(p=>[...p.filter(m=>m.email!==currentUserEmail),{email:currentUserEmail,roleId:"owner",assignedAt:new Date().toISOString().split("T")[0],assignedBy:"system"}]);
-                                  if(myMemberRecord?.id){
-                                    setMembers(p=>p.map(m=>m.email===currentUserEmail?{...m,role_id:"owner"}:m));
-                                    try{
-                                      const sb=createClient();
-                                      const { data, error } = await sb.from("members").update({role_id:"owner"}).eq("id",myMemberRecord.id).select();
-                                      if(error) alert(`エラーが発生しました: ${error.message}`);
-                                      else if(!data || data.length===0) alert("DBの更新がブロックされました。RLS（Row Level Security）のUPDATEポリシーを確認してください。");
-                                    }catch(e){console.log("owner claim err",e);}
-                                  }
-                                  setShowClaimOwner(false); setClaimOwnerCode("");
+                                  try {
+                                    const sb=createClient();
+                                    const {data:{user}} = await sb.auth.getUser();
+                                    if(!user) return;
+                                    
+                                    const { data, error } = await sb.from("members").upsert({
+                                      id: user.id, email: user.email, role_id: "owner",
+                                      display_name: user.user_metadata?.full_name || user.email,
+                                      avatar_url: user.user_metadata?.avatar_url,
+                                      discord_id: user.user_metadata?.provider_id,
+                                      online_at: new Date().toISOString()
+                                    }).select();
+
+                                    if(error) {
+                                      alert(`エラー: ${error.message}`);
+                                    } else if (!data || data.length === 0) {
+                                      alert("データベースの更新がブロックされました。Supabaseで public.members テーブルのRLSポリシー（UPDATE / INSERT権限）を許可してください。");
+                                    } else {
+                                      // DB成功後にローカルを更新
+                                      setMembers(p=>p.map(m=>m.email===currentUserEmail?{...m,role_id:"owner"}:m));
+                                      setMemberRoles(p=>[...p.filter(m=>m.email!==currentUserEmail),{email:currentUserEmail,roleId:"owner",assignedAt:new Date().toISOString().split("T")[0],assignedBy:"system"}]);
+                                      setShowClaimOwner(false); setClaimOwnerCode("");
+                                      alert("オーナー権限を取得しました！");
+                                    }
+                                  } catch(e) { console.log(e); alert("通信エラーが発生しました"); }
                                 } else {
                                   setClaimOwnerError("コードが正しくありません");
                                 }
@@ -1750,21 +1762,25 @@ export default function AppShell() {
                       <button onClick={async()=>{
                         if(!assignEmail.trim()||!assignRoleId)return;
                         const targetEmail = assignEmail.trim();
-                        setMemberRoles(p=>[...p.filter(m=>m.email!==targetEmail),{email:targetEmail,roleId:assignRoleId,assignedAt:new Date().toISOString().split("T")[0],assignedBy:currentUserEmail}]);
-                        setAssignEmail("");
-                        setAssignRoleId("");
 
                         const existingMember = members.find(m => m.email === targetEmail);
                         if (existingMember) {
                           try {
                             const sb = createClient();
                             const { data, error } = await sb.from("members").update({ role_id: assignRoleId }).eq("id", existingMember.id).select();
-                            if(error) alert(`エラー: ${error.message}`);
-                            else if(!data || data.length===0) alert("DBの更新がブロックされました。RLSポリシーを確認してください。");
+                            if(error) { alert(`エラー: ${error.message}`); return; }
+                            if(!data || data.length===0) { alert("データベースの更新がブロックされました。RLSポリシーを確認してください。"); return; }
                           } catch (e) {
                             console.error("Assign role db error:", e);
+                            return;
                           }
                         }
+
+                        // DB成功後
+                        setMemberRoles(p=>[...p.filter(m=>m.email!==targetEmail),{email:targetEmail,roleId:assignRoleId,assignedAt:new Date().toISOString().split("T")[0],assignedBy:currentUserEmail}]);
+                        setAssignEmail("");
+                        setAssignRoleId("");
+                        alert("割り当てました");
                       }} className="w-full text-white font-bold py-2.5 rounded-xl text-sm transition-all" style={{background:appearance.accentColor}}>割り当て</button>
                     </div>
                     {memberRoles.length>0&&(
@@ -1779,14 +1795,15 @@ export default function AppShell() {
                                 <div><p className="text-xs font-bold text-gray-800 truncate max-w-[160px]">{m.email}</p><p className="text-[10px] text-gray-400">{r?.name}</p></div>
                               </div>
                               <button onClick={async()=>{
-                                setMemberRoles(p=>p.filter(x=>x.email!==m.email));
                                 const existingMember = members.find(x => x.email === m.email);
                                 if (existingMember) {
                                   try {
                                     const sb = createClient();
-                                    await sb.from("members").update({ role_id: "member" }).eq("id", existingMember.id);
-                                  } catch (e) { console.error("Remove role db error:", e); }
+                                    const { data, error } = await sb.from("members").update({ role_id: "member" }).eq("id", existingMember.id).select();
+                                    if(error || !data || data.length===0) { alert("権限の解除に失敗しました。"); return; }
+                                  } catch (e) { console.error(e); return; }
                                 }
+                                setMemberRoles(p=>p.filter(x=>x.email!==m.email));
                               }} className="text-gray-300 hover:text-red-400 transition-colors p-1"><X size={13}/></button>
                             </div>
                           );
