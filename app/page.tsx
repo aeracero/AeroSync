@@ -14,6 +14,11 @@ import {
   Copy, Download, Upload, RefreshCw, HelpCircle, Star, Flame, Home, AtSign, BellRing
 } from "lucide-react";
 
+// ─── Constants & Settings ──────────────────────────────────────────────────────
+// ★ オーナー権限を自動付与したいDiscordアカウントのユーザーID（数字の羅列）をここに入力してください
+const TARGET_OWNER_DISCORD_ID = "916106297190019102";
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Tab = "home"|"schedule"|"inventory"|"wiki"|"members"|"settings";
 type AuthMode = "login"|"signup"|"check_email";
@@ -33,7 +38,7 @@ type Role = { id: string; name: string; color: string; icon: string; permissions
 type MemberRole = { email: string; roleId: string; assignedAt: string; assignedBy: string; };
 type AppearanceSettings = { theme: "system"|"light"|"dark"; accentColor: string; fontSize: "sm"|"md"|"lg"; reduceMotion: boolean; compactMode: boolean; };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Constants (Data) ─────────────────────────────────────────────────────────
 const TASK_COLORS = ["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6","#ec4899","#06b6d4","#84cc16"];
 const WIKI_CATS = ["一般","機材","手順","ルール","メモ"];
 const INV_CATS = ["カメラ","音響","照明","その他"];
@@ -286,9 +291,6 @@ export default function AppShell() {
   const [memberRoles, setMemberRoles] = useState<MemberRole[]>([]);
   const [editingRole, setEditingRole] = useState<Role|null>(null);
   const [showNewRoleForm, setShowNewRoleForm] = useState(false);
-  const [claimOwnerCode, setClaimOwnerCode] = useState("");
-  const [claimOwnerError, setClaimOwnerError] = useState("");
-  const [showClaimOwner, setShowClaimOwner] = useState(false);
   const [assignEmail, setAssignEmail] = useState("");
   const [assignRoleId, setAssignRoleId] = useState("");
 
@@ -349,7 +351,7 @@ export default function AppShell() {
   const unreadCount = notifications.filter(n=>!n.read).length;
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
-  // ── 修正箇所: ここで変数を定義 ───────────────────────────────────────────
+  // ── ユーザー情報の抽出 ───────────────────────────────────────────
   const userProfile = session?.user?.user_metadata ?? {};
   const displayName = userProfile?.full_name ?? session?.user?.email ?? "ユーザー";
   const currentUserEmail = session?.user?.email ?? userProfile?.full_name ?? "me";
@@ -357,12 +359,9 @@ export default function AppShell() {
   const myMemberRecord = members.find(m=>m.email===currentUserEmail);
   const myLocalRole = memberRoles.find(m=>m.email===currentUserEmail);
   const myEffectiveRoleId = myMemberRecord?.role_id ?? myLocalRole?.roleId ?? "member";
-  const myRoleData = roles.find(r=>r.id===myEffectiveRoleId) ?? roles.find(r=>r.id==="member")!;
+  const myRoleData = roles.find(r=>r.id===myEffectiveRoleId) ?? roles.find(r=>r.id==="member") ?? DEFAULT_ROLES.find(r=>r.id==="member")!;
   const perms = myRoleData?.permissions ?? DEFAULT_PERMISSIONS;
   const canManageRoles = perms.manageRoles || perms.manageMembers;
-  const membersLoaded = members.length > 0;
-  const noOwner = membersLoaded && !members.some(m=>m.role_id==="owner") && !memberRoles.some(m=>m.roleId==="owner");
-  const imAlreadyOwner = myEffectiveRoleId==="owner";
 
   const selectedTasks = tasks.filter(t=>t.date===selectedDate);
   const selectedAvail = availability.filter(a=>a.date===selectedDate);
@@ -372,13 +371,15 @@ export default function AppShell() {
   const lowStock = inventory.filter(i=>i.stock<i.total*0.3);
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ★グループチャット購読・クリーンアップ
   useEffect(()=>{
-    if(!groupOpen)return;
+    if(!groupOpen) return;
+    const supabase=createClient();
+    let channel: any;
     const load=async()=>{
-      const supabase=createClient();
       const {data}=await supabase.from("messages").select("*").eq("channel_id","general").order("created_at",{ascending:true}).limit(100);
-      if(data)setGroupMessages(data as DmMessage[]);
-      supabase.channel("general_msgs").on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.general`},(p)=>{
+      if(data) setGroupMessages(data as DmMessage[]);
+      channel = supabase.channel("general_msgs").on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.general`},(p)=>{
         const incoming = p.new as DmMessage;
         setGroupMessages(prev=>{
           const isDupe = prev.some(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content&&Math.abs(new Date(m.created_at).getTime()-new Date(incoming.created_at).getTime())<5000);
@@ -388,7 +389,33 @@ export default function AppShell() {
       }).subscribe();
     };
     load();
+    return () => { if (channel) supabase.removeChannel(channel); };
   },[groupOpen]);
+
+  // ★DMチャット購読・クリーンアップ（問題解決）
+  useEffect(()=>{
+    if(!dmOpen) return;
+    setDmMessages([]); // 開いた瞬間に前のメッセージをクリア
+    const supabase=createClient();
+    let channel: any;
+    const load=async()=>{
+      const {data:{user}}=await supabase.auth.getUser();
+      if(!user)return;
+      const channelId=`dm:${[user.id,dmOpen.id].sort().join(":")}`;
+      const {data}=await supabase.from("messages").select("*").eq("channel_id",channelId).order("created_at",{ascending:true}).limit(50);
+      if(data) setDmMessages(data as DmMessage[]);
+      channel = supabase.channel(`dm_${channelId.replace(/:/g,"_")}`).on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.${channelId}`},(p)=>{
+        const incoming = p.new as DmMessage;
+        setDmMessages(prev=>{
+          const isDuplicate = prev.some(m=>m.sender_id===incoming.sender_id && m.content===incoming.content && Math.abs(new Date(m.created_at).getTime()-new Date(incoming.created_at).getTime())<5000);
+          if(isDuplicate) return prev.map(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content?{...m,id:incoming.id,created_at:incoming.created_at}:m);
+          return [...prev, incoming];
+        });
+      }).subscribe();
+    };
+    load();
+    return () => { if (channel) supabase.removeChannel(channel); };
+  },[dmOpen?.id]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -430,10 +457,12 @@ export default function AppShell() {
     });
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,s)=>setSession(s));
 
+    const loadedMemberRoles = loadLS<MemberRole[]>("as_memberroles", []);
     setRoles(loadLS("as_roles", DEFAULT_ROLES));
-    setMemberRoles(loadLS("as_memberroles", []));
+    setMemberRoles(loadedMemberRoles);
     setAppearance(loadLS("as_appearance", {theme:"system",accentColor:"#3b82f6",fontSize:"md",reduceMotion:false,compactMode:false}));
-    setMyVisualEffect(loadLS("as_myeffect", "none"));
+    const loadedVisualEffect = loadLS("as_myeffect", "none");
+    setMyVisualEffect(loadedVisualEffect);
     setChatMessages(loadLS("as_chat", []));
     setNotifEnabled(typeof Notification!=="undefined"&&Notification.permission==="granted");
 
@@ -479,14 +508,44 @@ export default function AppShell() {
 
         const { data: { user: u } } = await supabase.auth.getUser();
         if (u) {
-          // Use upsert to make sure row exists safely
-          await supabase.from("members").upsert({
-            id: u.id, email: u.email,
-            display_name: u.user_metadata?.full_name || u.email,
-            avatar_url: u.user_metadata?.avatar_url,
-            discord_id: u.user_metadata?.provider_id,
-            online_at: new Date().toISOString(),
-          }, { onConflict: "id" });
+          // DiscordのユーザーID（OAuthプロバイダーのID）を取得
+          const providerId = u.user_metadata?.provider_id || u.user_metadata?.sub;
+          const isOwnerAccount = providerId === TARGET_OWNER_DISCORD_ID;
+
+          const { data: existingUser } = await supabase.from("members").select("*").eq("id", u.id).maybeSingle();
+          
+          if (existingUser) {
+            if (existingUser.visual_effect && existingUser.visual_effect !== "none") {
+              setMyVisualEffect(existingUser.visual_effect);
+            }
+
+            await supabase.from("members").update({
+              email: u.email,
+              display_name: u.user_metadata?.full_name || u.email,
+              avatar_url: u.user_metadata?.avatar_url,
+              discord_id: providerId,
+              role_id: isOwnerAccount ? "owner" : existingUser.role_id, // 指定されたDiscordIDなら強制的にオーナー
+              online_at: new Date().toISOString(),
+            }).eq("id", u.id);
+
+            // オーナーとして昇格した場合、UIの表示も即座に更新する
+            if (isOwnerAccount && existingUser.role_id !== "owner") {
+              setMembers(p=>p.map(m=>m.id===u.id?{...m,role_id:"owner"}:m));
+              setMemberRoles(p=>[...p.filter(m=>m.email!==u.email),{email:u.email||"",roleId:"owner",assignedAt:new Date().toISOString(),assignedBy:"system"}]);
+            }
+          } else {
+            const preAssigned = loadedMemberRoles.find(mr => mr.email === u.email);
+            const initialRole = isOwnerAccount ? "owner" : (preAssigned?.roleId || "member");
+            await supabase.from("members").insert({
+              id: u.id, email: u.email,
+              display_name: u.user_metadata?.full_name || u.email,
+              avatar_url: u.user_metadata?.avatar_url,
+              discord_id: providerId,
+              role_id: initialRole,
+              visual_effect: loadedVisualEffect || "none",
+              online_at: new Date().toISOString(),
+            });
+          }
         }
       } catch(e) { console.error("[AeroSync] Supabase init failed:", e); }
     };
@@ -741,26 +800,6 @@ export default function AppShell() {
       await fetch("/api/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"message",targetUserId:dmOpen.id,targetDiscordId:dmOpen.discord_id,message:{title:`📩 ${user.user_metadata?.full_name||user.email}からDM`,body:msg.content,data:{channelId}}})});
     } catch(e){console.log("DM send error:",e);}
     finally{setDmLoading(false);}
-  };
-
-  const loadDmHistory = async(member:Member)=>{
-    setDmOpen(member);setDmMessages([]);
-    try {
-      const supabase=createClient();
-      const {data:{user}}=await supabase.auth.getUser();
-      if(!user)return;
-      const channelId=`dm:${[user.id,member.id].sort().join(":")}`;
-      const {data}=await supabase.from("messages").select("*").eq("channel_id",channelId).order("created_at",{ascending:true}).limit(50);
-      if(data) setDmMessages(data as DmMessage[]);
-      supabase.channel(`dm_${channelId.replace(/:/g,"_")}`).on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`channel_id=eq.${channelId}`},(p)=>{
-        const incoming = p.new as DmMessage;
-        setDmMessages(prev=>{
-          const isDuplicate = prev.some(m=>m.sender_id===incoming.sender_id && m.content===incoming.content && Math.abs(new Date(m.created_at).getTime()-new Date(incoming.created_at).getTime())<5000);
-          if(isDuplicate) return prev.map(m=>m.sender_id===incoming.sender_id&&m.content===incoming.content?{...m,id:incoming.id,created_at:incoming.created_at}:m);
-          return [...prev, incoming];
-        });
-      }).subscribe();
-    } catch(e){console.log("DM load error:",e);}
   };
 
   const sendGroupMessage = async(mentionMember?:Member)=>{
@@ -1456,7 +1495,7 @@ export default function AppShell() {
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {!isMe&&(
-                      <button onClick={()=>loadDmHistory(member)}
+                      <button onClick={()=>setDmOpen(member)}
                         className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-90"
                         style={{background:appearance.accentColor+"22",color:appearance.accentColor}}>
                         <MessageCircle size={14}/>
@@ -1643,7 +1682,14 @@ export default function AppShell() {
                     <p className="text-xs text-gray-500 mb-3">自分の名前に表示されるエフェクトを選択</p>
                     <div className="grid grid-cols-2 gap-2">
                       {VISUAL_EFFECTS.map(ef=>(
-                        <button key={ef.id} onClick={()=>setMyVisualEffect(ef.id)}
+                        <button key={ef.id} onClick={async ()=>{
+                          setMyVisualEffect(ef.id);
+                          try {
+                            const sb = createClient();
+                            const { data: { user } } = await sb.auth.getUser();
+                            if(user) await sb.from("members").update({ visual_effect: ef.id }).eq("id", user.id);
+                          } catch(e) { console.error("effect sync error", e); }
+                        }}
                           className={`py-2.5 px-3 rounded-xl text-xs font-bold border-2 text-left transition-all ${myVisualEffect===ef.id?"border-blue-500 bg-blue-50 text-blue-700":"border-gray-200 text-gray-600"}`}>
                           {ef.id==="none"?"🚫 なし":ef.label}
                         </button>
@@ -1664,67 +1710,6 @@ export default function AppShell() {
 
             {settingsTab==="roles"&&(
               <>
-                {noOwner && !imAlreadyOwner &&(
-                  <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
-                    <div className="flex items-start gap-3">
-                      <span className="text-2xl shrink-0">👑</span>
-                      <div className="flex-1">
-                        <p className="text-sm font-black text-amber-800 mb-0.5">オーナーがいません</p>
-                        <p className="text-xs text-amber-700 leading-relaxed mb-3">現在このアプリにはオーナーロールを持つメンバーがいません。あなたがオーナーになるには、セキュリティコードを入力してください。</p>
-                        {!showClaimOwner?(
-                          <button onClick={()=>setShowClaimOwner(true)}
-                            className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all active:scale-95">
-                            <Crown size={13}/> オーナーになる
-                          </button>
-                        ):(
-                          <div className="space-y-2">
-                            <p className="text-xs text-amber-700 font-medium">セキュリティコード: <span className="font-black">AEROSYNC</span></p>
-                            <div className="flex gap-2">
-                              <input
-                                value={claimOwnerCode}
-                                onChange={e=>{setClaimOwnerCode(e.target.value.toUpperCase());setClaimOwnerError("");}}
-                                placeholder="コードを入力..."
-                                className="flex-1 border border-amber-300 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 font-mono tracking-widest uppercase"
-                              />
-                              <button onClick={async ()=>{
-                                if(claimOwnerCode==="AEROSYNC"){
-                                  try {
-                                    const sb=createClient();
-                                    const {data:{user}} = await sb.auth.getUser();
-                                    if(!user) return;
-                                    
-                                    const { data, error } = await sb.from("members").upsert({
-                                      id: user.id, email: user.email, role_id: "owner",
-                                      display_name: user.user_metadata?.full_name || user.email,
-                                      avatar_url: user.user_metadata?.avatar_url,
-                                      discord_id: user.user_metadata?.provider_id,
-                                      online_at: new Date().toISOString()
-                                    }).select();
-
-                                    if(error) {
-                                      alert(`エラー: ${error.message}`);
-                                    } else if (!data || data.length === 0) {
-                                      alert("データベースの更新がブロックされました。Supabaseで public.members テーブルのRLSポリシー（UPDATE / INSERT権限）を許可してください。");
-                                    } else {
-                                      setMembers(p=>p.map(m=>m.email===currentUserEmail?{...m,role_id:"owner"}:m));
-                                      setMemberRoles(p=>[...p.filter(m=>m.email!==currentUserEmail),{email:currentUserEmail,roleId:"owner",assignedAt:new Date().toISOString().split("T")[0],assignedBy:"system"}]);
-                                      setShowClaimOwner(false); setClaimOwnerCode("");
-                                      alert("オーナー権限を取得しました！");
-                                    }
-                                  } catch(e) { console.log(e); alert("通信エラーが発生しました"); }
-                                } else {
-                                  setClaimOwnerError("コードが正しくありません");
-                                }
-                              }} className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 rounded-xl transition-all active:scale-95">確認</button>
-                            </div>
-                            {claimOwnerError&&<p className="text-xs text-red-500 font-medium">{claimOwnerError}</p>}
-                            <button onClick={()=>{setShowClaimOwner(false);setClaimOwnerCode("");setClaimOwnerError("");}} className="text-xs text-amber-600 font-medium">キャンセル</button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
                 <div className="space-y-2">
                   {roles.map(role=>(
                     <div key={role.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
