@@ -34,8 +34,10 @@ type DmMessage = { id:string; channel_id:string; channel_type:string; sender_id:
 type AppNotification = { id:string; type:string; title:string; body:string; read:boolean; created_at:string; };
 
 type Permission = { manageRoles: boolean; manageTasks: boolean; manageInventory: boolean; manageWiki: boolean; manageMembers: boolean; viewStats: boolean; exportData: boolean; };
-type Role = { id: string; name: string; color: string; icon: string; permissions: Permission; isDefault: boolean; visualEffect: string; createdAt: string; };
+type Role = { id: string; name: string; color: string; icon: string; permissions: Permission; isDefault: boolean; visualEffect: string; createdAt: string; team?: string; };
 type MemberRole = { email: string; roleId: string; assignedAt: string; assignedBy: string; };
+type Team = { id: string; name: string; color: string; icon: string; description: string; };
+type PinnedLink = { id: string; title: string; url: string; description: string; };
 type AppearanceSettings = { theme: "system"|"light"|"dark"; accentColor: string; fontSize: "sm"|"md"|"lg"; reduceMotion: boolean; compactMode: boolean; };
 
 // ─── Constants (Data) ─────────────────────────────────────────────────────────
@@ -162,7 +164,9 @@ function CalendarView({ tasks, availability, onDayClick, selectedDate }: { tasks
           const s=ds(d), dt=tasks.filter(t=>t.date===s), av=availability.filter(a=>a.date===s);
           const isSel=s===selectedDate, isT=s===today;
           return (
-            <button key={d} onClick={()=>onDayClick(s)} className={`relative py-1.5 mx-0.5 my-0.5 rounded-xl text-xs font-medium transition-all duration-200 active:scale-90 ${isSel?"bg-blue-600 text-white shadow-md shadow-blue-200":isT?"bg-blue-50 text-blue-600 font-bold":"text-gray-700 hover:bg-gray-50"}`}>
+            <button key={d} onClick={()=>onDayClick(s)}
+              className={`relative py-1.5 mx-0.5 my-0.5 rounded-xl text-xs font-medium transition-all duration-200 active:scale-90 ${isSel?"bg-blue-600 text-white shadow-md shadow-blue-200":isT?"bg-blue-50 text-blue-600 font-bold":dt.length>0?"font-bold text-gray-900":"text-gray-700 hover:bg-gray-50"}`}
+              style={dt.length>0&&!isSel?{background:`linear-gradient(135deg, ${dt[0].color}22, ${dt[0].color}11)`,boxShadow:`0 0 8px ${dt[0].color}55, inset 0 1px 0 ${dt[0].color}33`,border:`1px solid ${dt[0].color}44`}:undefined}>
               {d}
               {(dt.length>0||av.length>0)&&(
                 <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 flex gap-0.5">
@@ -271,6 +275,80 @@ function RoleEditor({ role, onSave, onClose, onDelete }: { role:Role; onSave:(r:
   );
 }
 
+function GanttView({ tasks, onTaskClick, accentColor }: { tasks: Task[]; onTaskClick: (id: string) => void; accentColor: string; }) {
+  const [viewStart, setViewStart] = useState(() => {
+    const d = new Date(); d.setDate(1); return d;
+  });
+  const DAYS_SHOWN = 30;
+  const days = Array.from({ length: DAYS_SHOWN }, (_, i) => {
+    const d = new Date(viewStart); d.setDate(d.getDate() + i);
+    return d.toISOString().split('T')[0];
+  });
+  const today = new Date().toISOString().split('T')[0];
+  const sortedTasks = [...tasks].sort((a, b) => a.date.localeCompare(b.date));
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <button onClick={() => { const d = new Date(viewStart); d.setDate(d.getDate() - 14); setViewStart(new Date(d)); }} className="p-1.5 rounded-xl hover:bg-gray-100 transition-all"><ChevronLeft size={16} className="text-gray-500"/></button>
+        <span className="font-bold text-sm text-gray-800">{viewStart.getFullYear()}年 {viewStart.getMonth() + 1}月〜</span>
+        <button onClick={() => { const d = new Date(viewStart); d.setDate(d.getDate() + 14); setViewStart(new Date(d)); }} className="p-1.5 rounded-xl hover:bg-gray-100 transition-all"><ChevronRight size={16} className="text-gray-500"/></button>
+      </div>
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: `${DAYS_SHOWN * 32 + 100}px` }}>
+          <div className="flex border-b border-gray-100 sticky top-0 bg-white z-10">
+            <div className="w-24 shrink-0 px-2 py-2 text-[10px] font-bold text-gray-400 border-r border-gray-100">タスク</div>
+            <div className="flex flex-1">
+              {days.map((day, i) => {
+                const d = new Date(day);
+                const isToday = day === today;
+                const dayOfWeek = d.getDay();
+                return (
+                  <div key={day} className={`w-8 shrink-0 text-center py-1 text-[9px] font-bold border-r border-gray-50 ${isToday ? 'bg-blue-50 text-blue-600' : dayOfWeek === 0 ? 'text-red-400' : dayOfWeek === 6 ? 'text-blue-400' : 'text-gray-400'}`}>
+                    {i === 0 || d.getDate() === 1 ? `${d.getMonth()+1}/${d.getDate()}` : d.getDate()}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {sortedTasks.length === 0 ? (
+            <div className="text-center py-8 text-sm text-gray-400">タスクがありません</div>
+          ) : (
+            sortedTasks.map(task => {
+              const taskDayIdx = days.indexOf(task.date);
+              return (
+                <div key={task.id} className="flex items-center border-b border-gray-50 hover:bg-gray-50 transition-colors group" style={{ minHeight: '36px' }}>
+                  <div className="w-24 shrink-0 px-2 py-1.5 border-r border-gray-100 overflow-hidden">
+                    <p className="text-[10px] font-bold text-gray-700 truncate">{task.title}</p>
+                    <p className="text-[9px] text-gray-400">{task.priority === 'high' ? '🔥' : task.priority === 'medium' ? '⚡' : '🌿'}</p>
+                  </div>
+                  <div className="flex flex-1 items-center relative" style={{ height: '36px' }}>
+                    {days.map((day) => {
+                      const isToday = day === today;
+                      return (
+                        <div key={day} className={`w-8 shrink-0 h-full border-r border-gray-50 ${isToday ? 'bg-blue-50/50' : ''}`}/>
+                      );
+                    })}
+                    {taskDayIdx >= 0 && (
+                      <button
+                        onClick={() => onTaskClick(task.id)}
+                        className={`absolute top-1/2 -translate-y-1/2 h-6 rounded-lg flex items-center px-2 text-[9px] font-bold text-white shadow-sm transition-all hover:h-7 hover:shadow-md ${task.done ? 'opacity-50' : ''}`}
+                        style={{ left: `${taskDayIdx * 32 + 2}px`, minWidth: '28px', background: task.color }}
+                        title={task.title}
+                      >
+                        <span className="truncate">{task.done ? '✓' : task.title.slice(0, 6)}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AppShell() {
   const [isMounted, setIsMounted] = useState(false);
   const [session, setSession] = useState<any>(undefined);
@@ -346,6 +424,16 @@ export default function AppShell() {
   const [taskEditDesc, setTaskEditDesc] = useState("");
   const [taskEditPhoto, setTaskEditPhoto] = useState<string|null>(null);
   const taskPhotoRef = useRef<HTMLInputElement>(null);
+  const spreadsheetRef = useRef<HTMLInputElement>(null);
+  const importDataRef = useRef<HTMLInputElement>(null);
+  const [teams, setTeams] = useState<Team[]>(loadLS("as_teams", []));
+  const [showTeamForm, setShowTeamForm] = useState(false);
+  const [newTeam, setNewTeam] = useState({ name: "", color: "#3b82f6", icon: "👥", description: "" });
+  const [pinnedLinks, setPinnedLinks] = useState<PinnedLink[]>(loadLS("as_pins", []));
+  const [showPinForm, setShowPinForm] = useState(false);
+  const [newPin, setNewPin] = useState({ title: "", url: "", description: "" });
+  const [scheduleView, setScheduleView] = useState<"calendar"|"gantt">("calendar");
+  const [geminiApiKey, setGeminiApiKey] = useState(loadLS<string>("as_gemini_key", ""));
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadCount = notifications.filter(n=>!n.read).length;
@@ -355,6 +443,7 @@ export default function AppShell() {
   const userProfile = session?.user?.user_metadata ?? {};
   const displayName = userProfile?.full_name ?? session?.user?.email ?? "ユーザー";
   const currentUserEmail = session?.user?.email ?? userProfile?.full_name ?? "me";
+  const currentUserId = session?.user?.id ?? "";
 
   const myMemberRecord = members.find(m=>m.email===currentUserEmail);
   const myLocalRole = memberRoles.find(m=>m.email===currentUserEmail);
@@ -618,16 +707,19 @@ export default function AppShell() {
     saveLS("as_appearance", appearance);
     saveLS("as_myeffect", myVisualEffect);
     saveLS("as_chat", chatMessages);
-  },[roles,memberRoles,appearance,myVisualEffect,chatMessages,isMounted]);
+    saveLS("as_teams", teams);
+    saveLS("as_pins", pinnedLinks);
+    saveLS("as_gemini_key", geminiApiKey);
+  },[roles,memberRoles,appearance,myVisualEffect,chatMessages,teams,pinnedLinks,geminiApiKey,isMounted]);
 
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[chatMessages]);
   useEffect(()=>{ dmEndRef.current?.scrollIntoView({behavior:"smooth"}); },[dmMessages]);
   useEffect(()=>{ if(searchOpen) setTimeout(()=>searchRef.current?.focus(),100); },[searchOpen]);
 
   useEffect(()=>{
-    const my = availability.find(a=>a.userId===currentUserEmail&&a.date===selectedDate);
+    const my = availability.find(a=>(a.userId===currentUserId||a.userId===currentUserEmail)&&a.date===selectedDate);
     setMyAvailStatus(my?.status??null); setAvailNote(my?.note??"");
-  },[selectedDate,availability,currentUserEmail]);
+  },[selectedDate,availability,currentUserId,currentUserEmail]);
 
   const handleDiscordLogin = async()=>{
     setAuthError(null); setAuthLoading(true);
@@ -722,11 +814,12 @@ export default function AppShell() {
 
   const setMyAvail = async(status:Availability["status"])=>{
     setMyAvailStatus(status);
-    setAvailability(prev=>[...prev.filter(a=>!(a.userId===currentUserEmail&&a.date===selectedDate)),{userId:currentUserEmail,name:currentUserEmail,date:selectedDate,status,note:availNote}]);
+    const sb=createClient();
+    const {data:{user}}=await sb.auth.getUser();
+    if(!user)return;
+    const myName=user.user_metadata?.full_name||user.email||"";
+    setAvailability(prev=>[...prev.filter(a=>!(a.userId===user.id&&a.date===selectedDate)),{userId:user.id,name:myName,date:selectedDate,status,note:availNote}]);
     try {
-      const sb=createClient();
-      const {data:{user}}=await sb.auth.getUser();
-      if(!user)return;
       await sb.from("availability").upsert({user_id:user.id,user_email:currentUserEmail,date:selectedDate,status,note:availNote},{onConflict:"user_id,date"});
     } catch(e){console.log("avail sync err",e);}
   };
@@ -776,7 +869,7 @@ export default function AppShell() {
     setChatMessages(prev=>[...prev,userMsg]); setChatInput(""); setChatLoading(true);
     const context=`タスク数:${tasks.length},機材数:${inventory.length},Wikiページ数:${wikis.length},今日:${new Date().toISOString().split("T")[0]},タスク:${tasks.slice(0,5).map(t=>t.title).join(",")}`;
     try {
-      const res=await fetch("/api/gemini",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:[...chatMessages,userMsg],context})});
+      const res=await fetch("/api/gemini",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:[...chatMessages,userMsg],context,apiKey:geminiApiKey||undefined})});
       const data=await res.json();
       const reply = data.reply || data.error || "エラーが発生しました";
       const sources: string[] = data.sources ?? [];
@@ -818,6 +911,62 @@ export default function AppShell() {
       }
     } catch(e){console.log("Group msg error:",e);}
   };
+
+  const importSpreadsheet = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const text = e.target?.result as string;
+      if (!text) return;
+      const lines = text.trim().split(/\r?\n/);
+      if (lines.length < 2) return;
+      const sep = text.includes('\t') ? '\t' : ',';
+      const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+      const dateIdx = headers.findIndex(h => h.includes('日付') || h.includes('date') || h === '日');
+      const titleIdx = headers.findIndex(h => h.includes('タスク') || h.includes('作業') || h.includes('title') || h.includes('名'));
+      const descIdx = headers.findIndex(h => h.includes('説明') || h.includes('description') || h.includes('内容'));
+      const priorityIdx = headers.findIndex(h => h.includes('優先') || h.includes('priority'));
+      const assigneeIdx = headers.findIndex(h => h.includes('担当') || h.includes('assignee') || h.includes('メンバー'));
+      const colorIdx = headers.findIndex(h => h.includes('カラー') || h.includes('color') || h.includes('色'));
+      if (dateIdx === -1 || titleIdx === -1) {
+        alert('スプレッドシートに「日付」と「タスク名」の列が必要です。\n検出されたヘッダー: ' + headers.join(', '));
+        return;
+      }
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      let imported = 0;
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
+        if (!cols[dateIdx] || !cols[titleIdx]) continue;
+        let dateStr = cols[dateIdx];
+        if (/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/.test(dateStr)) {
+          dateStr = dateStr.replace(/\//g, '-').replace(/(\d{4})-(\d{1})-/, '$1-0$2-').replace(/-(\d{1})$/, '-0$1');
+        } else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(dateStr)) {
+          const parts = dateStr.split(/[\/\-]/);
+          dateStr = `${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
+        }
+        const title = cols[titleIdx];
+        const desc = descIdx >= 0 ? cols[descIdx] || '' : '';
+        const priority: Task['priority'] = priorityIdx >= 0 && cols[priorityIdx]
+          ? (cols[priorityIdx].includes('高') || cols[priorityIdx].toLowerCase().includes('high') ? 'high'
+            : cols[priorityIdx].includes('低') || cols[priorityIdx].toLowerCase().includes('low') ? 'low'
+            : 'medium')
+          : 'medium';
+        const assignees = assigneeIdx >= 0 && cols[assigneeIdx] ? cols[assigneeIdx].split(/[,、]/).map(a=>a.trim()).filter(Boolean) : [];
+        const color = colorIdx >= 0 && cols[colorIdx] ? cols[colorIdx] : TASK_COLORS[imported % TASK_COLORS.length];
+        const localId = `import_${Date.now()}_${i}`;
+        setTasks(prev => [...prev, { id: localId, title, date: dateStr, description: desc, done: false, color, openJoin: true, assignees, priority, location: '' }]);
+        try {
+          const { data } = await supabase.from('tasks').insert({
+            title, date: dateStr, description: desc, done: false, color, open_join: true, assignees, priority, location: '', created_by: user?.id
+          }).select().single();
+          if (data) setTasks(p => p.map(t => t.id === localId ? { ...t, id: data.id } : t));
+        } catch (e) { console.log('import task err', e); }
+        imported++;
+      }
+      alert(`${imported}件のタスクをインポートしました！`);
+    };
+    reader.readAsText(file, 'UTF-8');
+  }, []);
 
   const sendMentionToDiscord = async(member:Member, message:string)=>{
     if(!perms.manageMembers&&!perms.manageRoles){alert("メンション権限がありません");return;}
@@ -1132,6 +1281,42 @@ export default function AppShell() {
                 ))}
               </div>
             </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5"><span>📌</span> ピン留めリンク</h2>
+                <button onClick={()=>setShowPinForm(true)} className="w-7 h-7 rounded-xl flex items-center justify-center" style={{background:appearance.accentColor+"22",color:appearance.accentColor}}><Plus size={14}/></button>
+              </div>
+              {pinnedLinks.length === 0
+                ? <div className="bg-white rounded-2xl border border-gray-100 p-4 text-center text-xs text-gray-400">
+                    <p className="text-lg mb-1">📌</p>よく使うリンクをピン留め
+                  </div>
+                : <div className="space-y-2">
+                    {pinnedLinks.map(pin=>(
+                      <div key={pin.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3 px-3.5 py-3">
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base" style={{background:appearance.accentColor+"15"}}>🔗</div>
+                        <div className="flex-1 min-w-0">
+                          <button onClick={()=>window.open(pin.url,"_blank")} className="text-sm font-bold text-gray-900 truncate hover:underline text-left w-full">{pin.title}</button>
+                          {pin.description&&<p className="text-[10px] text-gray-400 truncate">{pin.description}</p>}
+                        </div>
+                        <button onClick={()=>setPinnedLinks(p=>p.filter(x=>x.id!==pin.id))} className="text-gray-300 hover:text-red-400 transition-colors p-1 shrink-0"><X size={13}/></button>
+                      </div>
+                    ))}
+                  </div>
+              }
+              {showPinForm&&(
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setShowPinForm(false)}>
+                  <div className={`bg-white w-full rounded-t-3xl p-6 space-y-4 ${slideUp}`} onClick={e=>e.stopPropagation()}>
+                    <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto"/>
+                    <h3 className="font-black text-gray-900">リンクをピン留め</h3>
+                    <input placeholder="タイトル *" value={newPin.title} onChange={e=>setNewPin(p=>({...p,title:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    <input placeholder="URL * (https://...)" value={newPin.url} onChange={e=>setNewPin(p=>({...p,url:e.target.value}))} type="url" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    <input placeholder="説明（任意）" value={newPin.description} onChange={e=>setNewPin(p=>({...p,description:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    <button onClick={()=>{if(!newPin.title.trim()||!newPin.url.trim())return;let url=newPin.url.trim();if(!url.startsWith("http"))url="https://"+url;setPinnedLinks(p=>[...p,{id:Date.now().toString(),title:newPin.title.trim(),url,description:newPin.description.trim()}]);setNewPin({title:"",url:"",description:""});setShowPinForm(false);}} className="w-full text-white font-bold py-3 rounded-2xl text-sm" style={{background:appearance.accentColor}}>ピン留め</button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       );
@@ -1148,11 +1333,19 @@ export default function AppShell() {
             </div>
           ))}
         </div>
+        <div className="flex gap-1.5 bg-white rounded-xl border border-gray-100 p-1 shadow-sm">
+          <button onClick={()=>setScheduleView("calendar")} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${scheduleView==="calendar"?"text-white shadow-sm":"text-gray-500"}`} style={scheduleView==="calendar"?{background:appearance.accentColor}:{}}><Calendar size={12}/> カレンダー</button>
+          <button onClick={()=>setScheduleView("gantt")} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${scheduleView==="gantt"?"text-white shadow-sm":"text-gray-500"}`} style={scheduleView==="gantt"?{background:appearance.accentColor}:{}}><TrendingUp size={12}/> ガントチャート</button>
+        </div>
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-black text-gray-900">スケジュール</h2>
-          {perms.manageTasks&&<button onClick={()=>setShowTaskForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> タスク追加</button>}
+          <div className="flex items-center gap-2">
+            {perms.manageTasks&&<button onClick={()=>spreadsheetRef.current?.click()} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition-all active:scale-95"><Upload size={14}/> CSV読込</button>}
+            {perms.manageTasks&&<button onClick={()=>setShowTaskForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> タスク追加</button>}
+          </div>
         </div>
-        <CalendarView tasks={tasks} availability={availability} onDayClick={setSelectedDate} selectedDate={selectedDate}/>
+        <input ref={spreadsheetRef} type="file" accept=".csv,.tsv,.txt" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)importSpreadsheet(f);e.target.value="";}}/>
+        {scheduleView==="calendar" ? <CalendarView tasks={tasks} availability={availability} onDayClick={setSelectedDate} selectedDate={selectedDate}/> : <GanttView tasks={tasks} onTaskClick={(id)=>{setTaskDetailId(id);setTaskEditDesc(tasks.find(t=>t.id===id)?.notes||"");setTaskEditPhoto(tasks.find(t=>t.id===id)?.photo||null);}} accentColor={appearance.accentColor}/>}
         {(()=>{
           const weekStart = new Date(selectedDate);
           weekStart.setDate(weekStart.getDate()-weekStart.getDay());
@@ -1197,8 +1390,8 @@ export default function AppShell() {
                 className="flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95">{AVAIL_LABELS[s]}</button>
             ))}
           </div>
-          {myAvailStatus&&<div className="flex gap-2"><input value={availNote} onChange={e=>setAvailNote(e.target.value)} placeholder="コメント" className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"/><button onClick={async()=>{setAvailability(p=>p.map(a=>a.userId===currentUserEmail&&a.date===selectedDate?{...a,note:availNote}:a));try{const sb=createClient();const{data:{user}}=await sb.auth.getUser();if(user)await sb.from('availability').update({note:availNote}).eq('user_id',user.id).eq('date',selectedDate);}catch(e){console.log('note sync err',e);}}} className="bg-blue-100 text-blue-700 text-xs font-bold px-3 rounded-xl">保存</button></div>}
-          {selectedAvail.length>0&&<div className="mt-3 space-y-1.5">{selectedAvail.map(a=><div key={a.userId} className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full" style={{background:AVAIL_COLORS[a.status]}}/><span className="font-medium text-gray-700 truncate flex-1">{a.name}</span><span style={{color:AVAIL_COLORS[a.status]}} className="font-bold">{AVAIL_LABELS[a.status]}</span>{a.note&&<span className="text-gray-400 truncate max-w-[80px]">{a.note}</span>}</div>)}</div>}
+          {myAvailStatus&&<div className="flex gap-2"><input value={availNote} onChange={e=>setAvailNote(e.target.value)} placeholder="コメント" className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"/><button onClick={async()=>{const sb=createClient();const{data:{user}}=await sb.auth.getUser();if(!user)return;setAvailability(p=>p.map(a=>a.userId===user.id&&a.date===selectedDate?{...a,note:availNote}:a));try{await sb.from('availability').update({note:availNote}).eq('user_id',user.id).eq('date',selectedDate);}catch(e){console.log('note sync err',e);}}} className="bg-blue-100 text-blue-700 text-xs font-bold px-3 rounded-xl">保存</button></div>}
+          {selectedAvail.length>0&&<div className="mt-3 space-y-1.5">{selectedAvail.map(a=>{const m=members.find(x=>x.id===a.userId);const displayN=m?.display_name||a.name;return <div key={a.userId} className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full" style={{background:AVAIL_COLORS[a.status]}}/>{m?.avatar_url?<img src={m.avatar_url} className="w-4 h-4 rounded-full" alt=""/>:<div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{background:AVAIL_COLORS[a.status]}}>{displayN.charAt(0).toUpperCase()}</div>}<span className="font-medium text-gray-700 truncate flex-1">{displayN}</span><span style={{color:AVAIL_COLORS[a.status]}} className="font-bold">{AVAIL_LABELS[a.status]}</span>{a.note&&<span className="text-gray-400 truncate max-w-[80px]">{a.note}</span>}</div>; })}</div>}
         </div>
         {tasks.filter(t=>t.date===selectedDate).length>0&&(
           <button onClick={async()=>{
@@ -1698,6 +1891,17 @@ export default function AppShell() {
                   </div>
                 </div>
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
+                  <SectionHeader title="AI設定"/>
+                  <div className="p-4 space-y-3">
+                    <p className="text-xs text-gray-500">Gemini APIキーを設定するとAI機能が使えます（<a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-blue-500 underline">Google AI Studio</a>で取得）</p>
+                    <div className="relative">
+                      <input type="password" placeholder="AIzaSy..." value={geminiApiKey} onChange={e=>setGeminiApiKey(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 pr-20"/>
+                      {geminiApiKey && <button onClick={()=>setGeminiApiKey("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-red-400 font-bold">削除</button>}
+                    </div>
+                    <p className="text-[10px] text-gray-400">※ APIキーはこのデバイスのみに保存されます</p>
+                  </div>
+                </div>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
                   <SectionHeader title="アクティビティ"/>
                   <div className="grid grid-cols-3 gap-0 divide-x divide-gray-100">
                     {[{v:tasks.length,l:"タスク"},{v:completedTasks,l:"完了"},{v:wikis.length,l:"Wiki"}].map(s=>(
@@ -1737,6 +1941,41 @@ export default function AppShell() {
                   <button onClick={()=>setShowNewRoleForm(true)} className="w-full border-2 border-dashed border-gray-200 rounded-2xl py-3 flex items-center justify-center gap-2 text-sm font-bold text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-all">
                     <Plus size={16}/> 新しいロールを作成
                   </button>
+                )}
+                {canManageRoles&&(
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mt-4">
+                    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">チーム管理</p>
+                        <p className="text-xs text-gray-500 mt-0.5">チームを作成してメンバーをグループ化</p>
+                      </div>
+                      <button onClick={()=>setShowTeamForm(true)} className="text-xs font-bold px-2.5 py-1.5 rounded-xl text-white" style={{background:appearance.accentColor}}><Plus size={12} className="inline mr-1"/>作成</button>
+                    </div>
+                    {teams.length > 0 && (
+                      <div className="p-4 flex flex-wrap gap-2">
+                        {teams.map(t=>(
+                          <div key={t.id} className="flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-sm font-bold" style={{borderColor:t.color,background:t.color+"11",color:t.color}}>
+                            <span>{t.icon}</span><span>{t.name}</span>
+                            <button onClick={()=>setTeams(p=>p.filter(x=>x.id!==t.id))} className="ml-1 opacity-60 hover:opacity-100"><X size={10}/></button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {teams.length === 0 && <p className="text-xs text-gray-400 px-4 py-3">チームがありません</p>}
+                  </div>
+                )}
+                {showTeamForm && (
+                  <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setShowTeamForm(false)}>
+                    <div className={`bg-white w-full rounded-t-3xl p-6 space-y-4 ${slideUp}`} onClick={e=>e.stopPropagation()}>
+                      <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto"/>
+                      <h3 className="font-black text-gray-900">チームを作成</h3>
+                      <input placeholder="チーム名 *" value={newTeam.name} onChange={e=>setNewTeam(p=>({...p,name:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                      <input placeholder="説明" value={newTeam.description} onChange={e=>setNewTeam(p=>({...p,description:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                      <div><p className="text-xs font-bold text-gray-500 mb-2">カラー</p><div className="flex gap-2 flex-wrap">{ROLE_COLORS.map(c=><button key={c} onClick={()=>setNewTeam(p=>({...p,color:c}))} style={{background:c}} className={`w-8 h-8 rounded-full transition-all ${newTeam.color===c?"scale-125 ring-2 ring-offset-1 ring-gray-400":""}`}/>)}</div></div>
+                      <div><p className="text-xs font-bold text-gray-500 mb-2">アイコン</p><div className="flex flex-wrap gap-2">{["👥","🎬","🎵","💡","🎨","⚡","🛠️","📸","🎙️","🎭"].map(ic=><button key={ic} onClick={()=>setNewTeam(p=>({...p,icon:ic}))} className={`w-9 h-9 rounded-xl text-xl flex items-center justify-center transition-all ${newTeam.icon===ic?"bg-blue-100 ring-2 ring-blue-400":"bg-gray-100"}`}>{ic}</button>)}</div></div>
+                      <button onClick={()=>{if(!newTeam.name.trim())return;setTeams(p=>[...p,{id:Date.now().toString(),...newTeam}]);setNewTeam({name:"",color:"#3b82f6",icon:"👥",description:""});setShowTeamForm(false);}} className="w-full text-white font-bold py-3 rounded-2xl text-sm" style={{background:appearance.accentColor}}>作成</button>
+                    </div>
+                  </div>
                 )}
                 {canManageRoles&&(
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1867,7 +2106,26 @@ export default function AppShell() {
                   const data=JSON.stringify({tasks,inventory,wikis,roles,memberRoles},null,2);
                   const a=document.createElement("a"); a.href="data:text/json;charset=utf-8,"+encodeURIComponent(data); a.download="aerosync-export.json"; a.click();
                 }}/>
-                <SettingsRow icon={<Upload size={15} className="text-green-600"/>} iconBg="bg-green-100" title="データをインポート" subtitle="JSONファイルから復元"/>
+                <SettingsRow icon={<Upload size={15} className="text-green-600"/>} iconBg="bg-green-100" title="データをインポート" subtitle="JSONファイルから復元" onClick={()=>importDataRef.current?.click()}/>
+                <input ref={importDataRef} type="file" accept=".json" className="hidden" onChange={e=>{
+                  const f=e.target.files?.[0];if(!f)return;
+                  const r=new FileReader();
+                  r.onload=()=>{
+                    try {
+                      const d=JSON.parse(r.result as string);
+                      if(d.tasks&&Array.isArray(d.tasks)) setTasks(d.tasks);
+                      if(d.inventory&&Array.isArray(d.inventory)) setInventory(d.inventory);
+                      if(d.wikis&&Array.isArray(d.wikis)) setWikis(d.wikis);
+                      if(d.roles&&Array.isArray(d.roles)) setRoles(d.roles);
+                      if(d.memberRoles&&Array.isArray(d.memberRoles)) setMemberRoles(d.memberRoles);
+                      alert('インポートが完了しました');
+                    } catch {
+                      alert('JSONファイルの解析に失敗しました');
+                    }
+                  };
+                  r.readAsText(f);
+                  e.target.value="";
+                }}/>
                 <SettingsRow icon={<Copy size={15} className="text-purple-600"/>} iconBg="bg-purple-100" title="データをコピー" subtitle="クリップボードにコピー" onClick={()=>{navigator.clipboard.writeText(JSON.stringify({tasks,inventory,wikis},null,2)).catch(()=>{});}}/>
                 {perms.manageTasks&&<SettingsRow icon={<Trash2 size={15} className="text-red-500"/>} iconBg="bg-red-100" title="全データをリセット" subtitle="削除されたデータは復元できません" danger onClick={()=>{if(confirm("全データをリセットしますか？")){setTasks([]);setInventory([]);setWikis([]);}}}/>}
               </div>
@@ -1904,6 +2162,7 @@ export default function AppShell() {
         @keyframes tooltipIn { from{opacity:0;transform:translateX(-50%) translateY(4px) scale(0.95)} to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)} }
         @keyframes ripple { from{transform:scale(0.8);opacity:1} to{transform:scale(2.2);opacity:0} }
         @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+        @keyframes taskGlow { 0%,100%{opacity:0.6} 50%{opacity:1} }
       `}</style>
 
       <ParticleEffect effect={myVisualEffect}/>

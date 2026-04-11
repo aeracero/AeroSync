@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 
 export async function POST(req: Request) {
   try {
-    const { messages, context } = await req.json()
-    const apiKey = process.env.GEMINI_API_KEY
+    const { messages, context, apiKey: userApiKey } = await req.json()
+    const apiKey = userApiKey || process.env.GEMINI_API_KEY
     if (!apiKey) return NextResponse.json({ error: 'APIキーが設定されていません' }, { status: 500 })
 
     const systemPrompt = `あなたはAeroSyncというクラブ活動管理アプリのアシスタントです。
