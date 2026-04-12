@@ -1,12 +1,13 @@
 // POST /api/discord/poll
 // Creates an attendance poll message in a Discord channel with ✅🟡❌ reactions
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 
 const POLL_EMOJIS = ['✅', '🟡', '❌']
 
 export async function POST(req: Request) {
   try {
-    const { channelId, date, botToken, existingMessageId } = await req.json()
+    const { channelId, date, botToken, existingMessageId, guildId } = await req.json()
 
     if (!botToken)    return NextResponse.json({ error: 'Bot Tokenが設定されていません' }, { status: 400 })
     if (!channelId)   return NextResponse.json({ error: 'Channel IDが設定されていません' }, { status: 400 })
@@ -70,6 +71,17 @@ export async function POST(req: Request) {
       }
       // Discord rate limit: max 1 reaction/250ms
       await new Promise(r => setTimeout(r, 300))
+    }
+
+    // Save poll record to Supabase so the bot can auto-sync reactions
+    try {
+      const supabase = await createClient()
+      await supabase.from('discord_polls').upsert(
+        { date, channel_id: channelId, message_id: messageId, guild_id: guildId ?? null },
+        { onConflict: 'message_id' }
+      )
+    } catch (dbErr) {
+      console.warn('Failed to save poll to Supabase:', dbErr)
     }
 
     return NextResponse.json({ messageId, success: true })
