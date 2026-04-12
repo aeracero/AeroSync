@@ -434,6 +434,11 @@ export default function AppShell() {
   const [newPin, setNewPin] = useState({ title: "", url: "", description: "" });
   const [scheduleView, setScheduleView] = useState<"calendar"|"gantt">("calendar");
   const [geminiApiKey, setGeminiApiKey] = useState(loadLS<string>("as_gemini_key", ""));
+  const [discordBotToken, setDiscordBotToken] = useState(loadLS<string>("as_discord_token", ""));
+  const [discordPollChannelId, setDiscordPollChannelId] = useState(loadLS<string>("as_discord_poll_ch", ""));
+  const [discordPolls, setDiscordPolls] = useState<Record<string,string>>(loadLS("as_discord_polls", {}));
+  const [discordSyncing, setDiscordSyncing] = useState(false);
+  const [discordPosting, setDiscordPosting] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadCount = notifications.filter(n=>!n.read).length;
@@ -710,7 +715,10 @@ export default function AppShell() {
     saveLS("as_teams", teams);
     saveLS("as_pins", pinnedLinks);
     saveLS("as_gemini_key", geminiApiKey);
-  },[roles,memberRoles,appearance,myVisualEffect,chatMessages,teams,pinnedLinks,geminiApiKey,isMounted]);
+    saveLS("as_discord_token", discordBotToken);
+    saveLS("as_discord_poll_ch", discordPollChannelId);
+    saveLS("as_discord_polls", discordPolls);
+  },[roles,memberRoles,appearance,myVisualEffect,chatMessages,teams,pinnedLinks,geminiApiKey,discordBotToken,discordPollChannelId,discordPolls,isMounted]);
 
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[chatMessages]);
   useEffect(()=>{ dmEndRef.current?.scrollIntoView({behavior:"smooth"}); },[dmMessages]);
@@ -967,6 +975,61 @@ export default function AppShell() {
     };
     reader.readAsText(file, 'UTF-8');
   }, []);
+
+  const postDiscordPoll = async () => {
+    const chId = discordPollChannelId || process.env.NEXT_PUBLIC_DISCORD_CHANNEL_ID;
+    if (!discordBotToken) { alert("設定でDiscord Bot Tokenを入力してください"); return; }
+    if (!chId) { alert("設定でDiscord投票チャンネルIDを入力してください"); return; }
+    setDiscordPosting(true);
+    try {
+      const res = await fetch("/api/discord/poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelId: chId,
+          date: selectedDate,
+          botToken: discordBotToken,
+          existingMessageId: discordPolls[selectedDate] || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) { alert(`エラー: ${data.error}`); return; }
+      if (data.messageId) {
+        setDiscordPolls(prev => ({ ...prev, [selectedDate]: data.messageId }));
+      }
+      alert(data.updated ? "Discord投票を更新しました ✅" : "Discord投票を送信しました ✅");
+    } catch (e: any) { alert(`送信失敗: ${e.message}`); }
+    finally { setDiscordPosting(false); }
+  };
+
+  const syncDiscordReactions = async () => {
+    const chId = discordPollChannelId || process.env.NEXT_PUBLIC_DISCORD_CHANNEL_ID;
+    const messageId = discordPolls[selectedDate];
+    if (!discordBotToken || !messageId || !chId) return;
+    setDiscordSyncing(true);
+    try {
+      const res = await fetch("/api/discord/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId: chId, messageId, date: selectedDate, botToken: discordBotToken }),
+      });
+      const data = await res.json();
+      if (data.error) { alert(`同期エラー: ${data.error}`); return; }
+      // Refresh local availability state from DB
+      const sb = createClient();
+      const { data: fresh } = await sb.from("availability").select("*").eq("date", selectedDate);
+      if (fresh) {
+        setAvailability(prev => [
+          ...prev.filter(a => a.date !== selectedDate),
+          ...fresh.map((a: any) => ({
+            userId: a.user_id, name: a.user_email || a.user_id, date: a.date, status: a.status, note: a.note || "",
+          })),
+        ]);
+      }
+      alert(`${data.count}人のDiscord反応を同期しました ✅\n${data.synced?.join("、") || ""}`);
+    } catch (e: any) { alert(`同期失敗: ${e.message}`); }
+    finally { setDiscordSyncing(false); }
+  };
 
   const sendMentionToDiscord = async(member:Member, message:string)=>{
     if(!perms.manageMembers&&!perms.manageRoles){alert("メンション権限がありません");return;}
@@ -1391,7 +1454,49 @@ export default function AppShell() {
             ))}
           </div>
           {myAvailStatus&&<div className="flex gap-2"><input value={availNote} onChange={e=>setAvailNote(e.target.value)} placeholder="コメント" className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"/><button onClick={async()=>{const sb=createClient();const{data:{user}}=await sb.auth.getUser();if(!user)return;setAvailability(p=>p.map(a=>a.userId===user.id&&a.date===selectedDate?{...a,note:availNote}:a));try{await sb.from('availability').update({note:availNote}).eq('user_id',user.id).eq('date',selectedDate);}catch(e){console.log('note sync err',e);}}} className="bg-blue-100 text-blue-700 text-xs font-bold px-3 rounded-xl">保存</button></div>}
-          {selectedAvail.length>0&&<div className="mt-3 space-y-1.5">{selectedAvail.map(a=>{const m=members.find(x=>x.id===a.userId);const displayN=m?.display_name||a.name;return <div key={a.userId} className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full" style={{background:AVAIL_COLORS[a.status]}}/>{m?.avatar_url?<img src={m.avatar_url} className="w-4 h-4 rounded-full" alt=""/>:<div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{background:AVAIL_COLORS[a.status]}}>{displayN.charAt(0).toUpperCase()}</div>}<span className="font-medium text-gray-700 truncate flex-1">{displayN}</span><span style={{color:AVAIL_COLORS[a.status]}} className="font-bold">{AVAIL_LABELS[a.status]}</span>{a.note&&<span className="text-gray-400 truncate max-w-[80px]">{a.note}</span>}</div>; })}</div>}
+          {selectedAvail.length>0&&<div className="mt-3 space-y-1.5">{selectedAvail.map(a=>{const m=members.find(x=>x.id===a.userId);const displayN=m?.display_name||a.name;return <div key={a.userId} className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full" style={{background:AVAIL_COLORS[a.status]}}/>{m?.avatar_url?<img src={m.avatar_url} className="w-4 h-4 rounded-full" alt=""/>:<div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{background:AVAIL_COLORS[a.status]}}>{displayN.charAt(0).toUpperCase()}</div>}<span className="font-medium text-gray-700 truncate flex-1">{displayN}</span><span style={{color:AVAIL_COLORS[a.status]}} className="font-bold">{AVAIL_LABELS[a.status]}</span>{a.note&&<span className={`text-[9px] truncate max-w-[80px] ${a.note==="Discord経由"?"text-indigo-400 font-bold":"text-gray-400"}`}>{a.note==="Discord経由"?<><DiscordIcon/> Discord</>:a.note}</span>}</div>; })}</div>}
+
+          {/* ── Discord 集積パネル ── */}
+          <div className="mt-3 pt-3 border-t border-indigo-100">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-indigo-600 flex items-center gap-1.5">
+                <DiscordIcon/> Discord集積
+              </span>
+              <div className="flex items-center gap-1.5">
+                {discordBotToken ? (
+                  <>
+                    <button
+                      onClick={postDiscordPoll}
+                      disabled={discordPosting}
+                      className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-all active:scale-95 disabled:opacity-50">
+                      {discordPosting ? <Loader2 size={10} className="animate-spin"/> : <Send size={10}/>}
+                      {discordPolls[selectedDate] ? "投票を更新" : "投票を送信"}
+                    </button>
+                    {discordPolls[selectedDate] && (
+                      <button
+                        onClick={syncDiscordReactions}
+                        disabled={discordSyncing}
+                        className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 transition-all active:scale-95 disabled:opacity-50">
+                        {discordSyncing ? <Loader2 size={10} className="animate-spin"/> : <RefreshCw size={10}/>}
+                        反応を同期
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <button onClick={()=>{setActiveTab("settings");setSettingsTab("notifications");}} className="text-[11px] font-bold text-indigo-400 hover:text-indigo-600 transition-colors">
+                    Bot Token を設定 →
+                  </button>
+                )}
+              </div>
+            </div>
+            {discordPolls[selectedDate] ? (
+              <p className="text-[10px] text-indigo-400 flex items-center gap-1">
+                <Check size={9} className="text-green-500"/> 投票送信済み（メッセージID末尾: …{discordPolls[selectedDate].slice(-6)}）
+              </p>
+            ) : (
+              <p className="text-[10px] text-gray-400">Discordチャンネルにメンバーへのリアクションアンケートを送信し、回答を自動で取り込みます。</p>
+            )}
+          </div>
         </div>
         {tasks.filter(t=>t.date===selectedDate).length>0&&(
           <button onClick={async()=>{
@@ -2081,13 +2186,88 @@ export default function AppShell() {
             )}
 
             {settingsTab==="notifications"&&(
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
-                <SectionHeader title="通知設定"/>
-                <SettingsRow icon={notifEnabled?<Bell size={15} className="text-blue-600"/>:<BellOff size={15} className="text-gray-400"/>} iconBg={notifEnabled?"bg-blue-100":"bg-gray-100"} title="プッシュ通知" subtitle={notifEnabled?"通知が有効です":"タップして有効化"} right={<Toggle checked={notifEnabled} onChange={async()=>toggleNotif()} activeColor={appearance.accentColor}/>}/>
-                <SettingsRow icon={<Volume2 size={15} className={soundEnabled?"text-green-600":"text-gray-400"}/>} iconBg={soundEnabled?"bg-green-100":"bg-gray-100"} title="サウンド" subtitle="通知音を再生" right={<Toggle checked={soundEnabled} onChange={setSoundEnabled} activeColor={appearance.accentColor}/>}/>
-                <SettingsRow icon={<Vibrate size={15} className={hapticsEnabled?"text-orange-600":"text-gray-400"}/>} iconBg={hapticsEnabled?"bg-orange-100":"bg-gray-100"} title="バイブレーション" subtitle="触覚フィードバック" right={<Toggle checked={hapticsEnabled} onChange={setHapticsEnabled} activeColor={appearance.accentColor}/>}/>
-                <SettingsRow icon={<Smartphone size={15} className="text-indigo-600"/>} iconBg="bg-indigo-100" title="アプリをインストール" subtitle="ホーム画面に追加してネイティブ体験"/>
-              </div>
+              <>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
+                  <SectionHeader title="通知設定"/>
+                  <SettingsRow icon={notifEnabled?<Bell size={15} className="text-blue-600"/>:<BellOff size={15} className="text-gray-400"/>} iconBg={notifEnabled?"bg-blue-100":"bg-gray-100"} title="プッシュ通知" subtitle={notifEnabled?"通知が有効です":"タップして有効化"} right={<Toggle checked={notifEnabled} onChange={async()=>toggleNotif()} activeColor={appearance.accentColor}/>}/>
+                  <SettingsRow icon={<Volume2 size={15} className={soundEnabled?"text-green-600":"text-gray-400"}/>} iconBg={soundEnabled?"bg-green-100":"bg-gray-100"} title="サウンド" subtitle="通知音を再生" right={<Toggle checked={soundEnabled} onChange={setSoundEnabled} activeColor={appearance.accentColor}/>}/>
+                  <SettingsRow icon={<Vibrate size={15} className={hapticsEnabled?"text-orange-600":"text-gray-400"}/>} iconBg={hapticsEnabled?"bg-orange-100":"bg-gray-100"} title="バイブレーション" subtitle="触覚フィードバック" right={<Toggle checked={hapticsEnabled} onChange={setHapticsEnabled} activeColor={appearance.accentColor}/>}/>
+                  <SettingsRow icon={<Smartphone size={15} className="text-indigo-600"/>} iconBg="bg-indigo-100" title="アプリをインストール" subtitle="ホーム画面に追加してネイティブ体験"/>
+                </div>
+
+                {/* ── Discord 集積設定 ── */}
+                <div className="bg-white rounded-2xl border border-indigo-100 shadow-sm overflow-hidden divide-y divide-indigo-50">
+                  <div className="px-4 py-3 bg-indigo-50 flex items-center gap-2">
+                    <DiscordIcon/>
+                    <div>
+                      <p className="text-sm font-black text-indigo-800">Discord 集積設定</p>
+                      <p className="text-xs text-indigo-500">参加確認をDiscordに送って回答を自動取り込み</p>
+                    </div>
+                  </div>
+                  <div className="p-4 space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 block mb-1.5">Bot Token <span className="text-red-400">*</span></label>
+                      <div className="relative">
+                        <input
+                          type="password"
+                          placeholder="Bot Token を入力..."
+                          value={discordBotToken}
+                          onChange={e=>setDiscordBotToken(e.target.value)}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 pr-14"
+                        />
+                        {discordBotToken && (
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-500 flex items-center gap-0.5"><Check size={10}/> 設定済み</span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1">Discord Developer Portal → Bot → Token をコピー</p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 block mb-1.5">投票を送信するチャンネル ID</label>
+                      <input
+                        type="text"
+                        placeholder={process.env.NEXT_PUBLIC_DISCORD_CHANNEL_ID || "チャンネルIDを入力 (例: 1234567890)"}
+                        value={discordPollChannelId}
+                        onChange={e=>setDiscordPollChannelId(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1">チャンネル右クリック → IDをコピー（開発者モード必要）</p>
+                    </div>
+                    <div className="bg-indigo-50 rounded-xl p-3 space-y-1">
+                      <p className="text-xs font-bold text-indigo-700">使い方</p>
+                      <ol className="text-[11px] text-indigo-600 space-y-1 list-decimal list-inside">
+                        <li>スケジュールタブで日付を選択</li>
+                        <li>「参加状況」欄の「投票を送信」ボタンを押す</li>
+                        <li>Discordにアンケートが自動投稿される</li>
+                        <li>メンバーが ✅🟡❌ でリアクション</li>
+                        <li>「反応を同期」ボタンで AeroSync に取り込む</li>
+                      </ol>
+                    </div>
+                    <div className="bg-amber-50 rounded-xl p-3">
+                      <p className="text-[11px] text-amber-700 font-bold">⚠️ 注意事項</p>
+                      <ul className="text-[10px] text-amber-600 mt-1 space-y-0.5">
+                        <li>• Bot Token はこのデバイスにのみ保存されます</li>
+                        <li>• Discord連携済みのメンバーのみ同期されます</li>
+                        <li>• BotはそのチャンネルへのSend Messages権限が必要です</li>
+                      </ul>
+                    </div>
+                    {discordBotToken && (
+                      <button
+                        onClick={async()=>{
+                          const chId = discordPollChannelId || process.env.NEXT_PUBLIC_DISCORD_CHANNEL_ID;
+                          if(!chId){alert("Channel IDを入力してください");return;}
+                          try {
+                            const res = await fetch(`https://discord.com/api/v10/channels/${chId}`, { headers: { Authorization: `Bot ${discordBotToken}` } });
+                            if(res.ok) { const d = await res.json(); alert(`接続成功 ✅\nチャンネル名: #${d.name}`); }
+                            else { const e = await res.json(); alert(`接続失敗 ❌\n${JSON.stringify(e)}`); }
+                          } catch(e:any) { alert(`エラー: ${e.message}`); }
+                        }}
+                        className="w-full border border-indigo-200 text-indigo-700 font-bold py-2.5 rounded-xl text-sm hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2">
+                        <Check size={14}/> 接続テスト
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
 
             {settingsTab==="privacy"&&(
