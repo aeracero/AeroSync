@@ -439,6 +439,15 @@ export default function AppShell() {
   const [discordPolls, setDiscordPolls] = useState<Record<string,string>>(loadLS("as_discord_polls", {}));
   const [discordSyncing, setDiscordSyncing] = useState(false);
   const [discordPosting, setDiscordPosting] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string|null>(null);
+  const [qrWeekLabel, setQrWeekLabel] = useState("");
+  const [qrValidUntil, setQrValidUntil] = useState("");
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrScanResult, setQrScanResult] = useState<"success"|"error"|null>(null);
+  const qrVideoRef = useRef<HTMLVideoElement>(null);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadCount = notifications.filter(n=>!n.read).length;
@@ -1031,6 +1040,107 @@ export default function AppShell() {
     finally { setDiscordSyncing(false); }
   };
 
+  const loadQRCode = async () => {
+    setQrLoading(true);
+    setQrDataUrl(null);
+    try {
+      const res = await fetch("/api/checkin/qr");
+      const data = await res.json();
+      if (data.error) { alert(`QR生成エラー: ${data.error}`); return; }
+      setQrDataUrl(data.dataUrl);
+      setQrWeekLabel(data.weekLabel);
+      setQrValidUntil(data.validUntil);
+    } catch (e: any) { alert(`QR取得失敗: ${e.message}`); }
+    finally { setQrLoading(false); }
+  };
+
+  const printQR = () => {
+    if (!qrDataUrl) return;
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>AeroSync QR</title><style>body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;background:#fff}h2{font-size:1.4rem;margin-bottom:4px;color:#1e293b}p{font-size:.85rem;color:#64748b;margin:4px 0}img{width:280px;height:280px;margin:16px 0;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.12)}@media print{button{display:none}}</style></head><body><h2>AeroSync 作業場 出欠QR</h2><p>${qrWeekLabel}</p><p>${qrValidUntil} まで有効</p><img src="${qrDataUrl}" alt="QR"/><p style="font-size:.75rem;color:#94a3b8">毎週月曜日に更新されます</p><button onclick="window.print()" style="margin-top:16px;padding:10px 28px;border:none;border-radius:8px;background:#3b82f6;color:#fff;font-size:.9rem;cursor:pointer">印刷</button></body></html>`);
+    win.document.close();
+    setTimeout(() => win.print(), 400);
+  };
+
+  const stopQRScanner = () => {
+    setShowQRScanner(false);
+    setQrScanResult(null);
+  };
+
+  // QR camera scanner effect
+  useEffect(() => {
+    if (!showQRScanner) return;
+    let stream: MediaStream | null = null;
+    let animId: number | null = null;
+    let done = false;
+
+    const handleResult = async (raw: string) => {
+      done = true;
+      if (animId) cancelAnimationFrame(animId);
+      const token = raw.startsWith("AEROSYNC:") ? raw.slice(9) : raw;
+      try {
+        const res = await fetch("/api/checkin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        const data = await res.json();
+        if (data.error) { setQrScanResult("error"); return; }
+        setQrScanResult("success");
+        // Refresh availability for today
+        const today = new Date().toISOString().split("T")[0];
+        const sb = createClient();
+        const { data: fresh } = await sb.from("availability").select("*").eq("date", today);
+        if (fresh) {
+          setAvailability(prev => [
+            ...prev.filter(a => a.date !== today),
+            ...fresh.map((a: any) => ({ userId: a.user_id, name: a.user_email || a.user_id, date: a.date, status: a.status, note: a.note || "" })),
+          ]);
+        }
+        setTimeout(() => stopQRScanner(), 2000);
+      } catch { setQrScanResult("error"); }
+    };
+
+    const scan = async () => {
+      if (done) return;
+      const video = qrVideoRef.current;
+      const canvas = qrCanvasRef.current;
+      if (!video || !canvas || video.videoWidth === 0) { animId = requestAnimationFrame(scan); return; }
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(video, 0, 0);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      try {
+        if ("BarcodeDetector" in window) {
+          const det = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
+          const codes = await det.detect(video);
+          if (codes.length > 0) { handleResult(codes[0].rawValue); return; }
+        } else {
+          const { default: jsQR } = await import("jsqr");
+          const code = jsQR(img.data, img.width, img.height);
+          if (code) { handleResult(code.data); return; }
+        }
+      } catch {}
+      animId = requestAnimationFrame(scan);
+    };
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(s => {
+        stream = s;
+        if (qrVideoRef.current) qrVideoRef.current.srcObject = s;
+        animId = requestAnimationFrame(scan);
+      })
+      .catch(() => { alert("カメラへのアクセスを許可してください"); setShowQRScanner(false); });
+
+    return () => {
+      done = true;
+      if (animId) cancelAnimationFrame(animId);
+      stream?.getTracks().forEach(t => t.stop());
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showQRScanner]);
+
   const sendMentionToDiscord = async(member:Member, message:string)=>{
     if(!perms.manageMembers&&!perms.manageRoles){alert("メンション権限がありません");return;}
     const supabase=createClient();
@@ -1455,6 +1565,26 @@ export default function AppShell() {
           </div>
           {myAvailStatus&&<div className="flex gap-2"><input value={availNote} onChange={e=>setAvailNote(e.target.value)} placeholder="コメント" className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"/><button onClick={async()=>{const sb=createClient();const{data:{user}}=await sb.auth.getUser();if(!user)return;setAvailability(p=>p.map(a=>a.userId===user.id&&a.date===selectedDate?{...a,note:availNote}:a));try{await sb.from('availability').update({note:availNote}).eq('user_id',user.id).eq('date',selectedDate);}catch(e){console.log('note sync err',e);}}} className="bg-blue-100 text-blue-700 text-xs font-bold px-3 rounded-xl">保存</button></div>}
           {selectedAvail.length>0&&<div className="mt-3 space-y-1.5">{selectedAvail.map(a=>{const m=members.find(x=>x.id===a.userId);const displayN=m?.display_name||a.name;return <div key={a.userId} className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full" style={{background:AVAIL_COLORS[a.status]}}/>{m?.avatar_url?<img src={m.avatar_url} className="w-4 h-4 rounded-full" alt=""/>:<div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white" style={{background:AVAIL_COLORS[a.status]}}>{displayN.charAt(0).toUpperCase()}</div>}<span className="font-medium text-gray-700 truncate flex-1">{displayN}</span><span style={{color:AVAIL_COLORS[a.status]}} className="font-bold">{AVAIL_LABELS[a.status]}</span>{a.note&&<span className={`text-[9px] truncate max-w-[80px] ${a.note==="Discord経由"?"text-indigo-400 font-bold":"text-gray-400"}`}>{a.note==="Discord経由"?<><DiscordIcon/> Discord</>:a.note}</span>}</div>; })}</div>}
+
+          {/* ── QR出欠パネル ── */}
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-600 flex items-center gap-1.5">
+                <Smartphone size={12}/> QR出欠登録
+              </span>
+              <div className="flex gap-1.5">
+                <button onClick={()=>{setShowQRScanner(true);}} className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 transition-all active:scale-95">
+                  <Smartphone size={10}/> QRスキャン
+                </button>
+                {perms.manageTasks&&(
+                  <button onClick={()=>{setShowQRModal(true);loadQRCode();}} className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all active:scale-95">
+                    <Download size={10}/> QR表示/印刷
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">QRコードをスキャンして今日の出欠を即時登録。管理者はQRを印刷して作業場に掲示できます。</p>
+          </div>
 
           {/* ── Discord 集積パネル ── */}
           <div className="mt-3 pt-3 border-t border-indigo-100">
@@ -2533,6 +2663,62 @@ export default function AppShell() {
 
       {editingRole&&<RoleEditor role={editingRole} onSave={saveRole} onClose={()=>setEditingRole(null)} onDelete={editingRole.isDefault?undefined:()=>deleteRole(editingRole.id)}/>}
       {showNewRoleForm&&<RoleEditor role={{id:Date.now().toString(),name:"新しいロール",color:"#3b82f6",icon:"👤",permissions:{...DEFAULT_PERMISSIONS},isDefault:false,visualEffect:"none",createdAt:new Date().toISOString().split("T")[0]}} onSave={saveRole} onClose={()=>setShowNewRoleForm(false)}/>}
+
+      {/* ── QR表示モーダル ── */}
+      {showQRModal&&(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={()=>setShowQRModal(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs p-6 text-center" onClick={e=>e.stopPropagation()}>
+            <h2 className="text-base font-black text-gray-900 mb-0.5">今週の出欠QR</h2>
+            <p className="text-[11px] text-gray-400 mb-4">{qrWeekLabel} · {qrValidUntil}まで有効</p>
+            {qrLoading?(
+              <div className="flex items-center justify-center h-48"><Loader2 size={28} className="animate-spin text-blue-400"/></div>
+            ):qrDataUrl?(
+              <>
+                <img src={qrDataUrl} alt="QR Code" className="w-56 h-56 mx-auto rounded-2xl shadow-md mb-3 border border-gray-100"/>
+                <p className="text-[10px] text-gray-400 mb-4">AeroSyncアプリの「QRスキャン」で読み取れます</p>
+                <button onClick={printQR} className="w-full py-2.5 rounded-2xl bg-blue-50 text-blue-700 font-bold text-sm flex items-center justify-center gap-2 hover:bg-blue-100 transition-all active:scale-95">
+                  <Download size={14}/> 印刷 / 保存
+                </button>
+              </>
+            ):(
+              <p className="text-sm text-red-500 py-8">QR生成に失敗しました</p>
+            )}
+            <button onClick={()=>setShowQRModal(false)} className="mt-2 w-full py-2 rounded-2xl text-gray-400 text-sm hover:text-gray-600 transition-colors">閉じる</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── QRスキャナーモーダル ── */}
+      {showQRScanner&&(
+        <div className="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center" onClick={stopQRScanner}>
+          <div className="flex flex-col items-center" onClick={e=>e.stopPropagation()}>
+            <h2 className="text-white font-black text-base mb-1">QRコードをかざしてください</h2>
+            <p className="text-white/50 text-[11px] mb-5">作業場に掲示されたQRコードをスキャン</p>
+            <div className="relative w-64 h-64 rounded-2xl overflow-hidden bg-black border-2 border-white/20">
+              <video ref={qrVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"/>
+              <canvas ref={qrCanvasRef} className="hidden"/>
+              {/* corner guides */}
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute top-3 left-3 w-7 h-7 border-t-[3px] border-l-[3px] border-white rounded-tl-lg"/>
+                <div className="absolute top-3 right-3 w-7 h-7 border-t-[3px] border-r-[3px] border-white rounded-tr-lg"/>
+                <div className="absolute bottom-3 left-3 w-7 h-7 border-b-[3px] border-l-[3px] border-white rounded-bl-lg"/>
+                <div className="absolute bottom-3 right-3 w-7 h-7 border-b-[3px] border-r-[3px] border-white rounded-br-lg"/>
+              </div>
+            </div>
+            {qrScanResult==="success"&&(
+              <div className="mt-5 text-center">
+                <p className="text-green-400 font-black text-xl">✅ 出欠登録完了！</p>
+                <p className="text-white/60 text-sm mt-1">今日の参加を記録しました</p>
+              </div>
+            )}
+            {qrScanResult==="error"&&(
+              <p className="mt-5 text-red-400 font-bold text-sm text-center">QRコードが無効です。<br/>最新のQRを読み取ってください。</p>
+            )}
+            {!qrScanResult&&<p className="mt-4 text-white/40 text-xs animate-pulse">スキャン中...</p>}
+            <button onClick={stopQRScanner} className="mt-6 px-8 py-3 rounded-2xl bg-white/10 text-white font-bold text-sm hover:bg-white/20 transition-all">キャンセル</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
