@@ -32,6 +32,7 @@ type ChatMessage = { role:"user"|"assistant"; content:string; ts:number; };
 type Member = { id:string; email:string; display_name:string; avatar_url?:string; discord_id?:string; role_id:string; visual_effect:string; online_at?:string; };
 type DmMessage = { id:string; channel_id:string; channel_type:string; sender_id:string; sender_email:string; sender_name:string; sender_avatar?:string; content:string; mentions:string[]; created_at:string; };
 type AppNotification = { id:string; type:string; title:string; body:string; read:boolean; created_at:string; };
+type AttendanceLog = { id:string; user_id:string; user_email:string|null; user_name:string|null; checked_in_at:string; checked_out_at:string|null; duration_minutes:number|null; };
 
 type Permission = { manageRoles: boolean; manageTasks: boolean; manageInventory: boolean; manageWiki: boolean; manageMembers: boolean; viewStats: boolean; exportData: boolean; };
 type Role = { id: string; name: string; color: string; icon: string; permissions: Permission; isDefault: boolean; visualEffect: string; createdAt: string; team?: string; };
@@ -445,9 +446,12 @@ export default function AppShell() {
   const [qrWeekLabel, setQrWeekLabel] = useState("");
   const [qrValidUntil, setQrValidUntil] = useState("");
   const [qrLoading, setQrLoading] = useState(false);
-  const [qrScanResult, setQrScanResult] = useState<"success"|"error"|null>(null);
+  const [qrScanResult, setQrScanResult] = useState<"checkin"|"checkout"|"error"|null>(null);
+  const [qrScanData, setQrScanData] = useState<{durationMinutes?:number}|null>(null);
   const qrVideoRef = useRef<HTMLVideoElement>(null);
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadCount = notifications.filter(n=>!n.read).length;
@@ -1040,6 +1044,28 @@ export default function AppShell() {
     finally { setDiscordSyncing(false); }
   };
 
+  const loadAttendanceLogs = async (date?: string) => {
+    setAttendanceLoading(true);
+    try {
+      const target = date ?? new Date().toISOString().split("T")[0];
+      const sb = createClient();
+      const { data } = await sb
+        .from("attendance_logs")
+        .select("*")
+        .gte("checked_in_at", `${target}T00:00:00+00:00`)
+        .lte("checked_in_at", `${target}T23:59:59+00:00`)
+        .order("checked_in_at", { ascending: false });
+      if (data) setAttendanceLogs(data as AttendanceLog[]);
+    } catch {}
+    finally { setAttendanceLoading(false); }
+  };
+
+  // selectedDate が変わったとき（スケジュールタブ）に出席ログを再取得
+  useEffect(() => {
+    if (activeTab === "schedule") loadAttendanceLogs(selectedDate);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, activeTab]);
+
   const loadQRCode = async () => {
     setQrLoading(true);
     setQrDataUrl(null);
@@ -1066,6 +1092,7 @@ export default function AppShell() {
   const stopQRScanner = () => {
     setShowQRScanner(false);
     setQrScanResult(null);
+    setQrScanData(null);
   };
 
   // QR camera scanner effect
@@ -1087,17 +1114,16 @@ export default function AppShell() {
         });
         const data = await res.json();
         if (data.error) { setQrScanResult("error"); return; }
-        setQrScanResult("success");
-        // Refresh availability for today
-        const today = new Date().toISOString().split("T")[0];
-        const sb = createClient();
-        const { data: fresh } = await sb.from("availability").select("*").eq("date", today);
-        if (fresh) {
-          setAvailability(prev => [
-            ...prev.filter(a => a.date !== today),
-            ...fresh.map((a: any) => ({ userId: a.user_id, name: a.user_email || a.user_id, date: a.date, status: a.status, note: a.note || "" })),
-          ]);
+        if (data.action === "checkout") {
+          setQrScanData({ durationMinutes: data.durationMinutes });
+          setQrScanResult("checkout");
+        } else {
+          setQrScanData(null);
+          setQrScanResult("checkin");
         }
+        // Refresh attendance logs for today
+        const today = new Date().toISOString().split("T")[0];
+        await loadAttendanceLogs(today);
         setTimeout(() => stopQRScanner(), 2000);
       } catch { setQrScanResult("error"); }
     };
@@ -1583,7 +1609,58 @@ export default function AppShell() {
                 )}
               </div>
             </div>
-            <p className="text-[10px] text-gray-400 mt-1">QRコードをスキャンして今日の出欠を即時登録。管理者はQRを印刷して作業場に掲示できます。</p>
+            <p className="text-[10px] text-gray-400 mt-1">QRコードをスキャンして入室・退室を記録。管理者はQRを印刷して作業場に掲示できます。</p>
+          </div>
+
+          {/* ── 出席確認ログ ── */}
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-gray-600 flex items-center gap-1.5">
+                <CheckSquare size={12} className="text-teal-500"/> 出席確認ログ
+              </span>
+              <button
+                onClick={()=>loadAttendanceLogs(selectedDate)}
+                className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100 transition-all active:scale-95">
+                <RefreshCw size={9}/> 更新
+              </button>
+            </div>
+            {attendanceLoading?(
+              <div className="flex justify-center py-3"><Loader2 size={14} className="animate-spin text-gray-300"/></div>
+            ):attendanceLogs.length===0?(
+              <p className="text-[10px] text-gray-300 text-center py-2">記録なし</p>
+            ):(
+              <div className="space-y-1.5">
+                {attendanceLogs.map(log=>{
+                  const inTime = new Date(log.checked_in_at);
+                  const inStr = `${inTime.getHours().toString().padStart(2,"0")}:${inTime.getMinutes().toString().padStart(2,"0")}`;
+                  const outStr = log.checked_out_at
+                    ? (()=>{const t=new Date(log.checked_out_at);return `${t.getHours().toString().padStart(2,"0")}:${t.getMinutes().toString().padStart(2,"0")}`;})()
+                    : null;
+                  const durStr = log.duration_minutes != null
+                    ? log.duration_minutes>=60
+                      ? `${Math.floor(log.duration_minutes/60)}h${log.duration_minutes%60}m`
+                      : `${log.duration_minutes}m`
+                    : null;
+                  const name = log.user_name || log.user_email || log.user_id;
+                  return (
+                    <div key={log.id} className="flex items-center gap-2 text-[11px] bg-gray-50 rounded-xl px-2.5 py-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${log.checked_out_at?"bg-blue-400":"bg-green-400 animate-pulse"}`}/>
+                      <span className="font-medium text-gray-700 truncate flex-1 min-w-0">{name}</span>
+                      <span className="text-gray-400 flex-shrink-0">{inStr}</span>
+                      {outStr?(
+                        <>
+                          <span className="text-gray-300 flex-shrink-0">→</span>
+                          <span className="text-gray-400 flex-shrink-0">{outStr}</span>
+                          {durStr&&<span className="text-teal-600 font-bold bg-teal-50 px-1.5 py-0.5 rounded-lg flex-shrink-0">{durStr}</span>}
+                        </>
+                      ):(
+                        <span className="text-green-600 font-bold bg-green-50 px-1.5 py-0.5 rounded-lg flex-shrink-0">入室中</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* ── Discord 集積パネル ── */}
@@ -2705,10 +2782,22 @@ export default function AppShell() {
                 <div className="absolute bottom-3 right-3 w-7 h-7 border-b-[3px] border-r-[3px] border-white rounded-br-lg"/>
               </div>
             </div>
-            {qrScanResult==="success"&&(
+            {qrScanResult==="checkin"&&(
               <div className="mt-5 text-center">
-                <p className="text-green-400 font-black text-xl">✅ 出欠登録完了！</p>
-                <p className="text-white/60 text-sm mt-1">今日の参加を記録しました</p>
+                <p className="text-green-400 font-black text-xl">✅ 入室記録完了！</p>
+                <p className="text-white/60 text-sm mt-1">入室時刻を記録しました</p>
+              </div>
+            )}
+            {qrScanResult==="checkout"&&(
+              <div className="mt-5 text-center">
+                <p className="text-blue-400 font-black text-xl">🚪 退室記録完了！</p>
+                <p className="text-white/60 text-sm mt-1">
+                  滞在時間：{qrScanData?.durationMinutes != null
+                    ? qrScanData.durationMinutes >= 60
+                      ? `${Math.floor(qrScanData.durationMinutes/60)}時間${qrScanData.durationMinutes%60}分`
+                      : `${qrScanData.durationMinutes}分`
+                    : "－"}
+                </p>
               </div>
             )}
             {qrScanResult==="error"&&(
