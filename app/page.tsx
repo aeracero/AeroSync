@@ -391,9 +391,14 @@ export default function AppShell() {
 
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [showInvForm, setShowInvForm] = useState(false);
+  const [invCats, setInvCats] = useState<string[]>(()=>loadLS("as_inv_cats", INV_CATS));
   const [newInv, setNewInv] = useState({ name:"", total:"", emoji:"📦", image:null as string|null, category:INV_CATS[0] });
+  const [showInvCatForm, setShowInvCatForm] = useState(false);
+  const [newInvCat, setNewInvCat] = useState("");
   const imgRef = useRef<HTMLInputElement>(null);
+  const xlsxImportRef = useRef<HTMLInputElement>(null);
   const [invFilter, setInvFilter] = useState("すべて");
+  const [xlsxImporting, setXlsxImporting] = useState(false);
 
   const [wikis, setWikis] = useState<WikiPage[]>([]);
   const [activeWiki, setActiveWiki] = useState<WikiPage|null>(null);
@@ -440,6 +445,12 @@ export default function AppShell() {
   const [discordPolls, setDiscordPolls] = useState<Record<string,string>>(loadLS("as_discord_polls", {}));
   const [discordSyncing, setDiscordSyncing] = useState(false);
   const [discordPosting, setDiscordPosting] = useState(false);
+  const [displayNameEdit, setDisplayNameEdit] = useState("");
+  const [displayNameSaving, setDisplayNameSaving] = useState(false);
+  const [aiIconPos, setAiIconPos] = useState<{x:number;y:number}>(()=>loadLS("as_ai_pos", {x:16, y:96}));
+  const aiIconDragging = useRef(false);
+  const aiIconDragOffset = useRef({x:0,y:0});
+  const [attendanceSyncing, setAttendanceSyncing] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string|null>(null);
@@ -1066,6 +1077,124 @@ export default function AppShell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, activeTab]);
 
+  // ── ユーザー名変更 ────────────────────────────────────────────────
+  const saveDisplayName = async () => {
+    const name = displayNameEdit.trim();
+    if (!name) return;
+    setDisplayNameSaving(true);
+    try {
+      const sb = createClient();
+      await sb.auth.updateUser({ data: { full_name: name } });
+      const { data: { user } } = await sb.auth.getUser();
+      if (user) await sb.from("members").update({ display_name: name }).eq("id", user.id);
+      setDisplayNameEdit("");
+    } catch (e: any) { alert(`保存失敗: ${e.message}`); }
+    finally { setDisplayNameSaving(false); }
+  };
+
+  // ── Discord 出席確認同期 ─────────────────────────────────────────
+  const syncAttendanceToDiscord = async () => {
+    if (!discordBotToken) { alert("設定でBot Tokenを入力してください"); return; }
+    if (!discordPollChannelId) { alert("設定でチャンネルIDを入力してください"); return; }
+    setAttendanceSyncing(true);
+    try {
+      const res = await fetch("/api/discord/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ botToken: discordBotToken, channelId: discordPollChannelId, date: selectedDate }),
+      });
+      const data = await res.json();
+      if (data.error) { alert(`同期失敗: ${data.error}`); return; }
+      alert(`✅ ${data.count}件の出席記録をDiscordに送信しました`);
+    } catch (e: any) { alert(`エラー: ${e.message}`); }
+    finally { setAttendanceSyncing(false); }
+  };
+
+  // ── Excelインポート ──────────────────────────────────────────────
+  const handleXlsxImport = async (file: File) => {
+    setXlsxImporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: true });
+
+      let importedInv = 0, importedTasks = 0;
+      const sb = createClient();
+
+      for (const sheetName of wb.SheetNames) {
+        const ws = wb.Sheets[sheetName];
+        const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        if (rows.length === 0) continue;
+        const cols = Object.keys(rows[0]).map(k => k.toLowerCase());
+
+        // ─ 在庫シートの判定（機材名/name列がある）
+        const isInv = cols.some(c => ["機材名","name","品名","機材"].includes(c));
+        // ─ スケジュールシートの判定（タイトル/title列がある）
+        const isSched = cols.some(c => ["タイトル","title","件名","予定","イベント"].includes(c));
+
+        if (isInv) {
+          for (const row of rows) {
+            const name = String(row["機材名"] || row["name"] || row["品名"] || row["機材"] || "").trim();
+            if (!name) continue;
+            const total = parseInt(String(row["総数"] || row["total"] || row["数量"] || "1"), 10) || 1;
+            const stock = parseInt(String(row["在庫"] || row["stock"] || row["現在庫"] || String(total)), 10) || total;
+            const cat = String(row["カテゴリ"] || row["category"] || row["分類"] || invCats[0] || INV_CATS[0]).trim();
+            const emoji = String(row["絵文字"] || row["emoji"] || "📦");
+
+            // カスタムカテゴリが存在しない場合は追加
+            if (!invCats.includes(cat) && !INV_CATS.includes(cat)) {
+              const next = [...invCats, cat];
+              setInvCats(next);
+              saveLS("as_inv_cats", next);
+            }
+
+            const localId = `xl_${Date.now()}_${Math.random()}`;
+            setInventory(p => [...p, { id: localId, name, stock, total, image: emoji, isEmoji: true, category: cat }]);
+            try {
+              const { data } = await sb.from("inventory").insert({ name, stock, total, image: emoji, is_emoji: true, category: cat }).select().single();
+              if (data) setInventory(p => p.map(i => i.id === localId ? { ...i, id: data.id } : i));
+            } catch {}
+            importedInv++;
+          }
+        }
+
+        if (isSched) {
+          for (const row of rows) {
+            const title = String(row["タイトル"] || row["title"] || row["件名"] || row["予定"] || row["イベント"] || "").trim();
+            if (!title) continue;
+            const rawDate = row["日付"] || row["date"] || row["開始日"] || "";
+            let dateStr = selectedDate;
+            if (rawDate instanceof Date) {
+              dateStr = rawDate.toISOString().split("T")[0];
+            } else if (typeof rawDate === "string" && rawDate.match(/^\d{4}-\d{2}-\d{2}/)) {
+              dateStr = rawDate.slice(0, 10);
+            } else if (typeof rawDate === "number") {
+              const d = new Date(Math.round((rawDate - 25569) * 86400000));
+              dateStr = d.toISOString().split("T")[0];
+            }
+            const desc = String(row["説明"] || row["description"] || row["内容"] || "").trim();
+            const color = String(row["カラー"] || row["color"] || TASK_COLORS[0]).trim();
+            const priority = (["low","medium","high"].includes(String(row["優先度"] || row["priority"]).toLowerCase())
+              ? String(row["優先度"] || row["priority"]).toLowerCase()
+              : "medium") as Task["priority"];
+            const location = String(row["場所"] || row["location"] || "").trim();
+
+            const localId = `xl_${Date.now()}_${Math.random()}`;
+            const task: Task = { id: localId, title, date: dateStr, description: desc, assignees: [], openJoin: true, color: TASK_COLORS.includes(color) ? color : TASK_COLORS[0], done: false, priority, location };
+            setTasks(p => [...p, task]);
+            try {
+              const { data } = await sb.from("tasks").insert({ title, date: dateStr, description: desc, assignees: [], open_join: true, color: task.color, done: false, priority, location }).select().single();
+              if (data) setTasks(p => p.map(t => t.id === localId ? { ...t, id: data.id } : t));
+            } catch {}
+            importedTasks++;
+          }
+        }
+      }
+      alert(`インポート完了！\n在庫: ${importedInv}件\nスケジュール: ${importedTasks}件`);
+    } catch (e: any) { alert(`インポート失敗: ${e.message}`); }
+    finally { setXlsxImporting(false); }
+  };
+
   const loadQRCode = async () => {
     setQrLoading(true);
     setQrDataUrl(null);
@@ -1618,11 +1747,21 @@ export default function AppShell() {
               <span className="text-xs font-bold text-gray-600 flex items-center gap-1.5">
                 <CheckSquare size={12} className="text-teal-500"/> 出席確認ログ
               </span>
-              <button
-                onClick={()=>loadAttendanceLogs(selectedDate)}
-                className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100 transition-all active:scale-95">
-                <RefreshCw size={9}/> 更新
-              </button>
+              <div className="flex gap-1.5">
+                {discordBotToken&&(
+                  <button
+                    onClick={syncAttendanceToDiscord}
+                    disabled={attendanceSyncing||attendanceLogs.length===0}
+                    className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all active:scale-95 disabled:opacity-50">
+                    {attendanceSyncing?<Loader2 size={9} className="animate-spin"/>:<DiscordIcon/>} 同期
+                  </button>
+                )}
+                <button
+                  onClick={()=>loadAttendanceLogs(selectedDate)}
+                  className="flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100 transition-all active:scale-95">
+                  <RefreshCw size={9}/> 更新
+                </button>
+              </div>
             </div>
             {attendanceLoading?(
               <div className="flex justify-center py-3"><Loader2 size={14} className="animate-spin text-gray-300"/></div>
@@ -1857,23 +1996,51 @@ export default function AppShell() {
       <div className={`p-4 space-y-4 ${fadeIn}`}>
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-black text-gray-900">在庫・設備</h2>
-          {perms.manageInventory&&<button onClick={()=>setShowInvForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> 追加</button>}
+          <div className="flex gap-2">
+            {perms.manageInventory&&(
+              <>
+                <button onClick={()=>xlsxImportRef.current?.click()} disabled={xlsxImporting} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all active:scale-95 disabled:opacity-50">
+                  {xlsxImporting?<Loader2 size={12} className="animate-spin"/>:<Upload size={12}/>} Excel
+                </button>
+                <input ref={xlsxImportRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)handleXlsxImport(f);e.target.value="";}}/>
+                <button onClick={()=>setShowInvForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> 追加</button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-          {["すべて",...INV_CATS].map(cat=><button key={cat} className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border transition-all ${invFilter===cat?"text-white border-transparent":"bg-white text-gray-500 border-gray-200"}`} style={invFilter===cat?{background:appearance.accentColor}:{}} onClick={()=>setInvFilter(cat)}>{cat}</button>)}
+        {/* カテゴリフィルター */}
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 items-center">
+          {["すべて",...invCats].map(cat=><button key={cat} className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border transition-all ${invFilter===cat?"text-white border-transparent":"bg-white text-gray-500 border-gray-200"}`} style={invFilter===cat?{background:appearance.accentColor}:{}} onClick={()=>setInvFilter(cat)}>{cat}</button>)}
+          {perms.manageInventory&&(
+            showInvCatForm
+              ? <div className="flex gap-1 shrink-0">
+                  <input autoFocus value={newInvCat} onChange={e=>setNewInvCat(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&newInvCat.trim()){const c=newInvCat.trim();const next=[...invCats,c];setInvCats(next);saveLS("as_inv_cats",next);setNewInvCat("");setShowInvCatForm(false);}if(e.key==="Escape"){setShowInvCatForm(false);}}} placeholder="カテゴリ名" className="text-xs border border-gray-300 rounded-full px-2.5 py-1 w-24 focus:outline-none focus:ring-1 focus:ring-blue-300"/>
+                  <button onClick={()=>{if(newInvCat.trim()){const c=newInvCat.trim();const next=[...invCats,c];setInvCats(next);saveLS("as_inv_cats",next);setNewInvCat("");setShowInvCatForm(false);}}} className="text-xs bg-blue-500 text-white px-2 py-1 rounded-full font-bold">追加</button>
+                  <button onClick={()=>setShowInvCatForm(false)} className="text-xs text-gray-400 px-2 py-1 rounded-full">×</button>
+                </div>
+              : <button onClick={()=>setShowInvCatForm(true)} className="shrink-0 text-xs font-bold px-2.5 py-1.5 rounded-full border border-dashed border-gray-300 text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-all"><Plus size={10}/></button>
+          )}
         </div>
+        {/* 低在庫アラート */}
+        {lowStock.length>0&&(
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-start gap-2">
+            <span className="text-amber-500 mt-0.5">⚠️</span>
+            <div><p className="text-xs font-bold text-amber-700">在庫少：{lowStock.map(i=>i.name).join("、")}</p><p className="text-[10px] text-amber-500 mt-0.5">30%以下の在庫があります</p></div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           {(invFilter==="すべて"?inventory:inventory.filter(i=>i.category===invFilter)).map(item=>(
             <div key={item.id} className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden transition-all hover:shadow-md ${fadeIn}`}>
               <div className="relative">
                 {item.isEmoji?<div className="h-24 bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center text-5xl">{item.image}</div>:<img src={item.image} alt={item.name} className="w-full h-24 object-cover"/>}
-                {perms.manageInventory&&<button onClick={async ()=>{setInventory(p=>p.filter(x=>x.id!==item.id));try{const sb=createClient();await sb.from('inventory').delete().eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="absolute top-1.5 right-1.5 w-6 h-6 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-400 shadow-sm transition-all"><Trash2 size={11}/></button>}
+                {perms.manageInventory&&<button onClick={async ()=>{if(!confirm(`「${item.name}」を削除しますか？`))return;setInventory(p=>p.filter(x=>x.id!==item.id));try{const sb=createClient();await sb.from('inventory').delete().eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="absolute top-1.5 right-1.5 w-6 h-6 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-400 shadow-sm transition-all"><Trash2 size={11}/></button>}
                 <div className="absolute top-1.5 left-1.5"><Pill color={appearance.accentColor}>{item.category}</Pill></div>
+                {item.stock===0&&<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><span className="text-white font-black text-xs bg-red-500 px-2 py-0.5 rounded-full">在庫切れ</span></div>}
               </div>
               <div className="p-2.5">
                 <p className="text-xs font-bold text-gray-800 truncate mb-1.5">{item.name}</p>
                 <div className="flex items-center gap-1 mb-2">
-                  <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden"><div className="h-full rounded-full transition-all duration-500" style={{width:`${(item.stock/item.total)*100}%`,background:item.stock===0?"#ef4444":item.stock<item.total*0.3?"#f59e0b":appearance.accentColor}}/></div>
+                  <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden"><div className="h-full rounded-full transition-all duration-500" style={{width:`${Math.min(100,(item.stock/Math.max(1,item.total))*100)}%`,background:item.stock===0?"#ef4444":item.stock<item.total*0.3?"#f59e0b":appearance.accentColor}}/></div>
                   <span className="text-[10px] font-bold text-gray-500 shrink-0">{item.stock}/{item.total}</span>
                 </div>
                 {perms.manageInventory&&<div className="flex gap-1"><button onClick={async()=>{const ns=Math.max(0,item.stock-1);setInventory(p=>p.map(x=>x.id===item.id?{...x,stock:ns}:x));try{const sb=createClient();await sb.from('inventory').update({stock:ns}).eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="flex-1 py-1 bg-red-50 text-red-500 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors">−</button><button onClick={async()=>{const ns=Math.min(item.total,item.stock+1);setInventory(p=>p.map(x=>x.id===item.id?{...x,stock:ns}:x));try{const sb=createClient();await sb.from('inventory').update({stock:ns}).eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="flex-1 py-1 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors">＋</button></div>}
@@ -1881,6 +2048,7 @@ export default function AppShell() {
             </div>
           ))}
         </div>
+        {inventory.length===0&&<div className="text-center py-16 text-gray-300"><Package size={40} className="mx-auto mb-3"/><p className="text-sm font-bold">機材・在庫がありません</p><p className="text-xs mt-1">「追加」ボタンまたはExcelファイルでインポートできます</p></div>}
         {showInvForm&&(
           <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setShowInvForm(false)}>
             <div className={`bg-white w-full rounded-t-3xl p-6 space-y-4 ${slideUp}`} onClick={e=>e.stopPropagation()}>
@@ -1894,7 +2062,7 @@ export default function AppShell() {
               {newInv.image&&<button onClick={()=>setNewInv(p=>({...p,image:null}))} className="text-xs text-red-500 font-medium">画像を削除</button>}
               <input placeholder="機材名 *" value={newInv.name} onChange={e=>setNewInv(p=>({...p,name:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
               <input type="number" placeholder="総数 *" min={1} value={newInv.total} onChange={e=>setNewInv(p=>({...p,total:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
-              <select value={newInv.category} onChange={e=>setNewInv(p=>({...p,category:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white">{INV_CATS.map(c=><option key={c}>{c}</option>)}</select>
+              <select value={newInv.category} onChange={e=>setNewInv(p=>({...p,category:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white">{invCats.map(c=><option key={c}>{c}</option>)}</select>
               <button onClick={addInventory} className="w-full text-white font-bold py-3 rounded-2xl text-sm transition-all active:scale-[0.98]" style={{background:appearance.accentColor}}>追加</button>
             </div>
           </div>
@@ -2178,6 +2346,27 @@ export default function AppShell() {
                     <div className="mt-1.5 flex items-center gap-1.5">
                       <span className="text-lg">{myRoleData?.icon}</span>
                       <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:"rgba(255,255,255,0.2)",color:"white"}}>{myRoleData?.name}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
+                  <SectionHeader title="ユーザー名"/>
+                  <div className="p-4 space-y-3">
+                    <p className="text-xs text-gray-500">現在：<span className="font-bold text-gray-700">{displayName}</span></p>
+                    <div className="flex gap-2">
+                      <input
+                        value={displayNameEdit}
+                        onChange={e=>setDisplayNameEdit(e.target.value)}
+                        onKeyDown={e=>{if(e.key==="Enter")saveDisplayName();}}
+                        placeholder="新しいユーザー名"
+                        className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                      <button
+                        onClick={saveDisplayName}
+                        disabled={displayNameSaving||!displayNameEdit.trim()}
+                        className="flex items-center gap-1 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                        style={{background:appearance.accentColor}}>
+                        {displayNameSaving?<Loader2 size={12} className="animate-spin"/>:<Save size={12}/>} 保存
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -2607,7 +2796,38 @@ export default function AppShell() {
       </nav>
 
       {!chatOpen&&(
-        <button onClick={()=>setChatOpen(true)} style={{animation:"floatPulse 3s ease-in-out infinite",background:appearance.accentColor}} className="fixed bottom-24 right-4 z-40 w-14 h-14 rounded-2xl flex items-center justify-center shadow-2xl active:scale-90 transition-transform" aria-label="AI">
+        <button
+          aria-label="AI"
+          style={{
+            bottom: aiIconPos.y,
+            right: aiIconPos.x,
+            animation: aiIconDragging.current ? "none" : "floatPulse 3s ease-in-out infinite",
+            background: appearance.accentColor,
+            touchAction: "none",
+          }}
+          className="fixed z-40 w-14 h-14 rounded-2xl flex items-center justify-center shadow-2xl transition-shadow select-none cursor-grab active:cursor-grabbing"
+          onPointerDown={e => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            aiIconDragging.current = true;
+            aiIconDragOffset.current = { x: e.clientX, y: e.clientY };
+          }}
+          onPointerMove={e => {
+            if (!aiIconDragging.current) return;
+            const dx = aiIconDragOffset.current.x - e.clientX;
+            const dy = aiIconDragOffset.current.y - e.clientY;
+            aiIconDragOffset.current = { x: e.clientX, y: e.clientY };
+            setAiIconPos(p => ({
+              x: Math.max(8, Math.min(window.innerWidth - 64, p.x + dx)),
+              y: Math.max(8, Math.min(window.innerHeight - 64, p.y + dy)),
+            }));
+          }}
+          onPointerUp={e => {
+            const moved = Math.abs(e.clientX - aiIconDragOffset.current.x) + Math.abs(e.clientY - aiIconDragOffset.current.y);
+            aiIconDragging.current = false;
+            saveLS("as_ai_pos", aiIconPos);
+            if (moved < 5) setChatOpen(true);
+          }}
+        >
           <div className="absolute inset-0 rounded-2xl opacity-30" style={{background:appearance.accentColor,animation:"ripple 2.5s ease-out infinite"}}/>
           <Sparkles size={22} className="text-white relative z-10"/>
         </button>
