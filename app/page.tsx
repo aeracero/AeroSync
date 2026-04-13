@@ -431,6 +431,8 @@ export default function AppShell() {
   const [taskEditPhoto, setTaskEditPhoto] = useState<string|null>(null);
   const taskPhotoRef = useRef<HTMLInputElement>(null);
   const spreadsheetRef = useRef<HTMLInputElement>(null);
+  const xlsxScheduleRef = useRef<HTMLInputElement>(null);
+  const [scheduleImporting, setScheduleImporting] = useState(false);
   const importDataRef = useRef<HTMLInputElement>(null);
   const [teams, setTeams] = useState<Team[]>(loadLS("as_teams", []));
   const [showTeamForm, setShowTeamForm] = useState(false);
@@ -597,10 +599,19 @@ export default function AppShell() {
         })));
 
         const { data: invData } = await supabase.from("inventory").select("*").order("created_at");
-        if (invData && invData.length > 0) setInventory(invData.map((i:any)=>({
-          id:i.id, name:i.name, stock:i.stock, total:i.total,
-          image:i.image||"📦", isEmoji:i.is_emoji, category:i.category
-        })));
+        if (invData && invData.length > 0) {
+          // DBにあるカテゴリをinvCatsに反映（カスタムカテゴリを保持）
+          const dbCats = [...new Set(invData.map((i:any) => i.category).filter(Boolean))] as string[];
+          setInvCats(prev => {
+            const merged = [...new Set([...prev, ...dbCats])];
+            saveLS("as_inv_cats", merged);
+            return merged;
+          });
+          setInventory(invData.map((i:any)=>({
+            id:i.id, name:i.name, stock:i.stock ?? 0, total:i.total ?? 1,
+            image:i.image||"📦", isEmoji:i.is_emoji ?? true, category:i.category || "その他"
+          })));
+        }
 
         const { data: wikiData } = await supabase.from("wiki_pages").select("*").order("updated_at", {ascending:false});
         if (wikiData && wikiData.length > 0) setWikis(wikiData.map((w:any)=>({
@@ -879,7 +890,7 @@ export default function AppShell() {
     const supabase = createClient();
     const localId = Date.now().toString();
     setInventory(prev=>[...prev,{id:localId,name:newInv.name.trim(),stock:n,total:n,image:newInv.image??newInv.emoji,isEmoji:!newInv.image,category:newInv.category}]);
-    setNewInv({name:"",total:"",emoji:"📦",image:null,category:INV_CATS[0]}); setShowInvForm(false);
+    setNewInv(p=>({name:"",total:"",emoji:"📦",image:null,category:p.category})); setShowInvForm(false);
     try {
       const { data } = await supabase.from("inventory").insert({
         name:newInv.name.trim(), stock:n, total:n,
@@ -999,6 +1010,98 @@ export default function AppShell() {
     };
     reader.readAsText(file, 'UTF-8');
   }, []);
+
+  // ── Excel(.xlsx/.xls)スケジュールインポート ─────────────────────────
+  const importExcelSchedule = async (file: File) => {
+    setScheduleImporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: true });
+      const sb = createClient();
+      const { data: { user } } = await sb.auth.getUser();
+      let imported = 0;
+      const errors: string[] = [];
+
+      for (const sheetName of wb.SheetNames) {
+        const ws = wb.Sheets[sheetName];
+        const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        if (rows.length === 0) continue;
+
+        for (const row of rows) {
+          // タイトル列を柔軟に検出
+          const title = String(
+            row["タイトル"] || row["title"] || row["件名"] || row["予定"] ||
+            row["イベント"] || row["タスク名"] || row["タスク"] || row["作業"] || ""
+          ).trim();
+          if (!title) continue;
+
+          // 日付列を柔軟に検出・変換
+          const rawDate =
+            row["日付"] || row["date"] || row["開始日"] || row["日"] ||
+            row["開催日"] || row["実施日"] || row["予定日"] || "";
+
+          let dateStr = selectedDate; // フォールバックは選択中の日付
+          if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
+            // xlsx が Date オブジェクトとして解析した場合
+            dateStr = rawDate.toISOString().split("T")[0];
+          } else if (typeof rawDate === "number" && rawDate > 0) {
+            // Excel のシリアル日付（1900年起点）
+            const d = new Date(Math.round((rawDate - 25569) * 86400000));
+            dateStr = d.toISOString().split("T")[0];
+          } else if (typeof rawDate === "string" && rawDate.trim()) {
+            const s = rawDate.trim();
+            // YYYY-MM-DD or YYYY/MM/DD
+            if (/^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}$/.test(s)) {
+              dateStr = s.replace(/\//g, "-").replace(/-(\d{1})-/, "-0$1-").replace(/-(\d{1})$/, "-0$1");
+            // MM/DD/YYYY or MM-DD-YYYY
+            } else if (/^\d{1,2}[-\/]\d{1,2}[-\/]\d{4}$/.test(s)) {
+              const p = s.split(/[-\/]/);
+              dateStr = `${p[2]}-${p[0].padStart(2,"0")}-${p[1].padStart(2,"0")}`;
+            // YYYY年MM月DD日
+            } else if (/^\d{4}年\d{1,2}月\d{1,2}日$/.test(s)) {
+              const m = s.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+              if (m) dateStr = `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+            }
+          }
+
+          // 日付の妥当性チェック
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            errors.push(`「${title}」の日付「${rawDate}」を解析できませんでした`);
+            continue;
+          }
+
+          const desc = String(row["説明"] || row["description"] || row["内容"] || row["備考"] || "").trim();
+          const rawPriority = String(row["優先度"] || row["priority"] || "").toLowerCase();
+          const priority: Task["priority"] =
+            rawPriority.includes("高") || rawPriority.includes("high") ? "high" :
+            rawPriority.includes("低") || rawPriority.includes("low") ? "low" : "medium";
+          const location = String(row["場所"] || row["location"] || row["会場"] || "").trim();
+          const rawColor = String(row["カラー"] || row["color"] || row["色"] || "").trim();
+          const color = TASK_COLORS.includes(rawColor) ? rawColor : TASK_COLORS[imported % TASK_COLORS.length];
+
+          const localId = `xl_sched_${Date.now()}_${Math.random()}`;
+          const task: Task = { id: localId, title, date: dateStr, description: desc, assignees: [], openJoin: true, color, done: false, priority, location };
+          setTasks(p => [...p, task]);
+          try {
+            const { data } = await sb.from("tasks").insert({
+              title, date: dateStr, description: desc, assignees: [], open_join: true, color, done: false, priority, location, created_by: user?.id
+            }).select().single();
+            if (data) setTasks(p => p.map(t => t.id === localId ? { ...t, id: data.id } : t));
+          } catch (e) { console.log("excel sched import err", e); }
+          imported++;
+        }
+      }
+
+      let msg = `✅ ${imported}件のスケジュールをカレンダーに追加しました！`;
+      if (errors.length > 0) msg += `\n\n⚠️ スキップ（日付エラー）:\n${errors.slice(0,5).join("\n")}`;
+      alert(msg);
+    } catch (e: any) {
+      alert(`Excelインポート失敗: ${e.message}`);
+    } finally {
+      setScheduleImporting(false);
+    }
+  };
 
   const postDiscordPoll = async () => {
     const chId = discordPollChannelId || process.env.NEXT_PUBLIC_DISCORD_CHANNEL_ID;
@@ -1668,11 +1771,17 @@ export default function AppShell() {
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-black text-gray-900">スケジュール</h2>
           <div className="flex items-center gap-2">
-            {perms.manageTasks&&<button onClick={()=>spreadsheetRef.current?.click()} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition-all active:scale-95"><Upload size={14}/> CSV読込</button>}
-            {perms.manageTasks&&<button onClick={()=>setShowTaskForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> タスク追加</button>}
+            {perms.manageTasks&&<button onClick={()=>spreadsheetRef.current?.click()} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition-all active:scale-95"><Upload size={14}/> CSV</button>}
+            {perms.manageTasks&&(
+              <button onClick={()=>xlsxScheduleRef.current?.click()} disabled={scheduleImporting} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition-all active:scale-95 disabled:opacity-50">
+                {scheduleImporting?<Loader2 size={12} className="animate-spin"/>:<Upload size={12}/>} Excel
+              </button>
+            )}
+            {perms.manageTasks&&<button onClick={()=>setShowTaskForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> 追加</button>}
           </div>
         </div>
         <input ref={spreadsheetRef} type="file" accept=".csv,.tsv,.txt" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)importSpreadsheet(f);e.target.value="";}}/>
+        <input ref={xlsxScheduleRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)importExcelSchedule(f);e.target.value="";}}/>
         {scheduleView==="calendar" ? <CalendarView tasks={tasks} availability={availability} onDayClick={setSelectedDate} selectedDate={selectedDate}/> : <GanttView tasks={tasks} onTaskClick={(id)=>{setTaskDetailId(id);setTaskEditDesc(tasks.find(t=>t.id===id)?.notes||"");setTaskEditPhoto(tasks.find(t=>t.id===id)?.photo||null);}} accentColor={appearance.accentColor}/>}
         {(()=>{
           const weekStart = new Date(selectedDate);
