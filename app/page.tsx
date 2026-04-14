@@ -22,9 +22,13 @@ const TARGET_OWNER_DISCORD_ID = "916106297190019102";
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Tab = "home"|"schedule"|"inventory"|"wiki"|"members"|"settings";
 type AuthMode = "login"|"signup"|"check_email";
-type SettingsTab = "profile"|"roles"|"appearance"|"notifications"|"privacy"|"data"|"about";
+type SettingsTab = "profile"|"roles"|"appearance"|"notifications"|"privacy"|"data"|"budget"|"about";
 
-type Task = { id:string; title:string; date:string; description:string; assignees:string[]; openJoin:boolean; color:string; done:boolean; priority:"low"|"medium"|"high"; location?:string; photo?:string; notes?:string; };
+type Task = { id:string; title:string; date:string; description:string; assignees:string[]; openJoin:boolean; color:string; done:boolean; priority:"low"|"medium"|"high"; location?:string; photo?:string; notes?:string; checklist?:{id:string;text:string;done:boolean}[]; recurrence?:string; recurrenceCount?:number; };
+type Expense = { id:string; title:string; amount:number; category:string; date:string; note:string; created_by:string; created_by_name:string; };
+type TaskComment = { id:string; task_id:string; user_id:string; user_name:string; content:string; created_at:string; };
+type SharedFile = { id:string; name:string; storage_path:string; url:string; size:number; mime_type:string; category:string; uploaded_by:string; uploaded_by_name:string; created_at?:string; };
+type ActivityLog = { id:string; user_id:string; user_name:string; action:string; entity_type:string; entity_id:string; details:any; created_at:string; };
 type Availability = { userId:string; name:string; date:string; status:"available"|"maybe"|"unavailable"; note:string; };
 type InventoryItem = { id:string; name:string; stock:number; total:number; image:string; isEmoji:boolean; category:string; };
 type WikiPage = { id:string; title:string; content:string; category:string; updatedAt:string; author:string; views:number; };
@@ -466,6 +470,36 @@ export default function AppShell() {
   const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+
+  // ── 新機能用 state ──────────────────────────────────────────────────────
+  // ② 出席統計
+  const [monthlyAttendance, setMonthlyAttendance] = useState<AttendanceLog[]>([]);
+  const [attendanceStatsLoading, setAttendanceStatsLoading] = useState(false);
+  // ③ 繰り返しタスク
+  const [newTaskRecurrence, setNewTaskRecurrence] = useState<"none"|"weekly"|"monthly">("none");
+  const [newTaskRecurrenceCount, setNewTaskRecurrenceCount] = useState(1);
+  // ⑤ 予算・費用管理
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [expensesLoading, setExpensesLoading] = useState(false);
+  const [newExpense, setNewExpense] = useState({ title:"", amount:"", category:"活動費", date:new Date().toISOString().split("T")[0], note:"" });
+  const EXPENSE_CATS = ["活動費","機材費","交通費","食費","その他"];
+  // ⑥ タスクコメント＋チェックリスト
+  const [taskComments, setTaskComments] = useState<TaskComment[]>([]);
+  const [taskCommentInput, setTaskCommentInput] = useState("");
+  const [newChecklistText, setNewChecklistText] = useState("");
+  // ⑧ ファイル共有
+  const [sharedFiles, setSharedFiles] = useState<SharedFile[]>([]);
+  const [sharedFilesLoading, setSharedFilesLoading] = useState(false);
+  const [fileUploading, setFileUploading] = useState(false);
+  const [fileFilter, setFileFilter] = useState("すべて");
+  const fileUploadRef = useRef<HTMLInputElement>(null);
+  // ⑨ アクティビティログ
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [activityLogsLoading, setActivityLogsLoading] = useState(false);
+  // ⑩ メンバー出席履歴
+  const [attendanceHistoryMember, setAttendanceHistoryMember] = useState<Member|null>(null);
+  const [memberAttendanceLogs, setMemberAttendanceLogs] = useState<AttendanceLog[]>([]);
+  const [memberAttendanceLoading, setMemberAttendanceLoading] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadCount = notifications.filter(n=>!n.read).length;
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -871,18 +905,40 @@ export default function AppShell() {
     if(!newTask.title.trim())return;
     const supabase = createClient();
     const { data:{ user } } = await supabase.auth.getUser();
-    const localId = Date.now().toString();
-    setTasks(prev=>[...prev,{id:localId,title:newTask.title.trim(),date:selectedDate,description:newTask.desc.trim(),done:false,color:newTask.color,openJoin:newTask.open,assignees:newTask.assignees,priority:newTask.priority,location:newTask.location}]);
-    setNewTask({title:"",desc:"",color:TASK_COLORS[0],open:true,assignees:[],priority:"medium",location:""}); setShowTaskForm(false);
-    try {
-      const { data } = await supabase.from("tasks").insert({
-        title:newTask.title.trim(), date:selectedDate, description:newTask.desc.trim(),
-        done:false, color:newTask.color, open_join:newTask.open, assignees:newTask.assignees,
-        priority:newTask.priority, location:newTask.location, created_by:user?.id
-      }).select().single();
-      if(data) setTasks(p=>p.map(t=>t.id===localId?{...t,id:data.id}:t));
-    } catch(e) { console.log("Task sync error:", e); }
-  },[newTask,selectedDate]);
+
+    // 繰り返しタスク: 日付リストを生成
+    const dates: string[] = [selectedDate];
+    if (newTaskRecurrence !== "none" && newTaskRecurrenceCount > 1) {
+      for (let i = 1; i < newTaskRecurrenceCount; i++) {
+        const base = new Date(selectedDate);
+        if (newTaskRecurrence === "weekly") base.setDate(base.getDate() + 7 * i);
+        else base.setMonth(base.getMonth() + i);
+        dates.push(base.toISOString().split("T")[0]);
+      }
+    }
+
+    for (const date of dates) {
+      const localId = `${Date.now()}_${date}`;
+      setTasks(prev=>[...prev,{id:localId,title:newTask.title.trim(),date,description:newTask.desc.trim(),done:false,color:newTask.color,openJoin:newTask.open,assignees:newTask.assignees,priority:newTask.priority,location:newTask.location,recurrence:newTaskRecurrence,recurrenceCount:newTaskRecurrenceCount}]);
+      try {
+        const { data } = await supabase.from("tasks").insert({
+          title:newTask.title.trim(), date, description:newTask.desc.trim(),
+          done:false, color:newTask.color, open_join:newTask.open, assignees:newTask.assignees,
+          priority:newTask.priority, location:newTask.location, created_by:user?.id,
+          recurrence:newTaskRecurrence, recurrence_count:newTaskRecurrenceCount,
+        }).select().single();
+        if(data) {
+          setTasks(p=>p.map(t=>t.id===localId?{...t,id:data.id}:t));
+          logActivity("タスク作成", "task", data.id, { title: newTask.title.trim() });
+        }
+      } catch(e) { console.log("Task sync error:", e); }
+    }
+
+    setNewTask({title:"",desc:"",color:TASK_COLORS[0],open:true,assignees:[],priority:"medium",location:""});
+    setNewTaskRecurrence("none"); setNewTaskRecurrenceCount(1);
+    setShowTaskForm(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[newTask,selectedDate,newTaskRecurrence,newTaskRecurrenceCount]);
 
   const addInventory = useCallback(async()=>{
     if(!newInv.name.trim()||!newInv.total)return;
@@ -896,7 +952,10 @@ export default function AppShell() {
         name:newInv.name.trim(), stock:n, total:n,
         image:newInv.image??newInv.emoji, is_emoji:!newInv.image, category:newInv.category
       }).select().single();
-      if(data) setInventory(p=>p.map(i=>i.id===localId?{...i,id:data.id}:i));
+      if(data) {
+        setInventory(p=>p.map(i=>i.id===localId?{...i,id:data.id}:i));
+        logActivity("機材追加", "inventory", data.id, { name: newInv.name.trim() });
+      }
     } catch(e) { console.log("Inventory sync error:", e); }
   },[newInv]);
 
@@ -1180,6 +1239,30 @@ export default function AppShell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, activeTab]);
 
+  // ホームタブに切り替えたとき出席統計を取得
+  useEffect(() => {
+    if (activeTab === "home") loadMonthlyAttendance();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // 設定タブaboutに切り替えたときアクティビティログを取得
+  useEffect(() => {
+    if (activeTab === "settings" && settingsTab === "about") loadActivityLogs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, settingsTab]);
+
+  // 設定タブbudgetに切り替えたとき費用を取得
+  useEffect(() => {
+    if (activeTab === "settings" && settingsTab === "budget") loadExpenses();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, settingsTab]);
+
+  // WikiタブにてSharedFilesを取得
+  useEffect(() => {
+    if (activeTab === "wiki") loadSharedFiles();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
   // ── ユーザー名変更 ────────────────────────────────────────────────
   const saveDisplayName = async () => {
     const name = displayNameEdit.trim();
@@ -1211,6 +1294,202 @@ export default function AppShell() {
       alert(`✅ ${data.count}件の出席記録をDiscordに送信しました`);
     } catch (e: any) { alert(`エラー: ${e.message}`); }
     finally { setAttendanceSyncing(false); }
+  };
+
+  // ⑨ アクティビティログ（fire-and-forget）
+  const logActivity = (action: string, entityType: string, entityId: string, details: any) => {
+    const sb = createClient();
+    sb.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      sb.from("activity_logs").insert({
+        user_id: user.id,
+        user_name: user.user_metadata?.full_name || user.email || "",
+        action, entity_type: entityType, entity_id: entityId, details,
+      }).then(() => {});
+    }).catch(() => {});
+  };
+
+  const loadActivityLogs = async () => {
+    setActivityLogsLoading(true);
+    try {
+      const sb = createClient();
+      const { data } = await sb.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(20);
+      if (data) setActivityLogs(data as ActivityLog[]);
+    } catch {}
+    finally { setActivityLogsLoading(false); }
+  };
+
+  // ② 出席統計ダッシュボード
+  const loadMonthlyAttendance = async () => {
+    setAttendanceStatsLoading(true);
+    try {
+      const sb = createClient();
+      const now = new Date();
+      const firstDay = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
+      const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().split("T")[0];
+      const { data } = await sb.from("attendance_logs").select("*")
+        .gte("checked_in_at", `${firstDay}T00:00:00+00:00`)
+        .lte("checked_in_at", `${lastDay}T23:59:59+00:00`);
+      if (data) setMonthlyAttendance(data as AttendanceLog[]);
+    } catch {}
+    finally { setAttendanceStatsLoading(false); }
+  };
+
+  // ⑤ 費用管理
+  const loadExpenses = async () => {
+    setExpensesLoading(true);
+    try {
+      const sb = createClient();
+      const { data } = await sb.from("expenses").select("*").order("date", { ascending: false });
+      if (data) setExpenses(data as Expense[]);
+    } catch {}
+    finally { setExpensesLoading(false); }
+  };
+
+  const addExpense = async () => {
+    if (!newExpense.title.trim() || !newExpense.amount) return;
+    const amount = parseInt(newExpense.amount, 10);
+    if (isNaN(amount)) return;
+    const sb = createClient();
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) return;
+    try {
+      const { data } = await sb.from("expenses").insert({
+        title: newExpense.title.trim(), amount, category: newExpense.category,
+        date: newExpense.date, note: newExpense.note.trim(),
+        created_by: user.id, created_by_name: user.user_metadata?.full_name || user.email || "",
+      }).select().single();
+      if (data) setExpenses(p => [data as Expense, ...p]);
+      setNewExpense({ title:"", amount:"", category:"活動費", date:new Date().toISOString().split("T")[0], note:"" });
+    } catch(e) { console.log("expense add err", e); }
+  };
+
+  const deleteExpense = async (id: string) => {
+    const sb = createClient();
+    try {
+      await sb.from("expenses").delete().eq("id", id);
+      setExpenses(p => p.filter(e => e.id !== id));
+    } catch {}
+  };
+
+  // ⑥ タスクコメント
+  const loadTaskComments = async (taskId: string) => {
+    const sb = createClient();
+    try {
+      const { data } = await sb.from("task_comments").select("*").eq("task_id", taskId).order("created_at", { ascending: true });
+      if (data) setTaskComments(data as TaskComment[]);
+    } catch {}
+  };
+
+  const addTaskComment = async (taskId: string) => {
+    if (!taskCommentInput.trim()) return;
+    const sb = createClient();
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) return;
+    try {
+      const { data } = await sb.from("task_comments").insert({
+        task_id: taskId, user_id: user.id,
+        user_name: user.user_metadata?.full_name || user.email || "",
+        content: taskCommentInput.trim(),
+      }).select().single();
+      if (data) { setTaskComments(p => [...p, data as TaskComment]); setTaskCommentInput(""); }
+    } catch {}
+  };
+
+  const deleteTaskComment = async (id: string) => {
+    const sb = createClient();
+    try {
+      await sb.from("task_comments").delete().eq("id", id);
+      setTaskComments(p => p.filter(c => c.id !== id));
+    } catch {}
+  };
+
+  // ⑥ チェックリスト更新
+  const updateChecklist = async (taskId: string, checklist: {id:string;text:string;done:boolean}[]) => {
+    setTasks(p => p.map(t => t.id === taskId ? { ...t, checklist } : t));
+    const sb = createClient();
+    try { await sb.from("tasks").update({ checklist }).eq("id", taskId); } catch {}
+  };
+
+  // ⑧ ファイル共有
+  const loadSharedFiles = async () => {
+    setSharedFilesLoading(true);
+    try {
+      const sb = createClient();
+      const { data } = await sb.from("shared_files").select("*").order("created_at", { ascending: false });
+      if (data) setSharedFiles(data as SharedFile[]);
+    } catch {}
+    finally { setSharedFilesLoading(false); }
+  };
+
+  const uploadSharedFile = async (file: File) => {
+    if (file.size > 50 * 1024 * 1024) { alert("50MB以下のファイルを選択してください"); return; }
+    setFileUploading(true);
+    try {
+      const sb = createClient();
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) return;
+      const ext = file.name.split(".").pop() || "";
+      const path = `${user.id}/${Date.now()}_${file.name}`;
+      const { error: upErr } = await sb.storage.from("shared-files").upload(path, file, { upsert: true });
+      if (upErr) { alert(`アップロード失敗: ${upErr.message}`); return; }
+      const publicUrl = sb.storage.from("shared-files").getPublicUrl(path).data.publicUrl;
+      const mime = file.type || "application/octet-stream";
+      const category = mime.startsWith("image/") ? "画像" : mime.startsWith("video/") ? "動画" : ext && ["pdf","doc","docx","txt","xls","xlsx","ppt","pptx"].includes(ext.toLowerCase()) ? "ドキュメント" : "その他";
+      const { data } = await sb.from("shared_files").insert({
+        name: file.name, storage_path: path, url: publicUrl,
+        size: file.size, mime_type: mime, category,
+        uploaded_by: user.id, uploaded_by_name: user.user_metadata?.full_name || user.email || "",
+      }).select().single();
+      if (data) setSharedFiles(p => [data as SharedFile, ...p]);
+    } catch(e: any) { alert(`エラー: ${e.message}`); }
+    finally { setFileUploading(false); }
+  };
+
+  const deleteSharedFile = async (file: SharedFile) => {
+    const sb = createClient();
+    try {
+      await sb.storage.from("shared-files").remove([file.storage_path]);
+      await sb.from("shared_files").delete().eq("id", file.id);
+      setSharedFiles(p => p.filter(f => f.id !== file.id));
+    } catch {}
+  };
+
+  // ⑦ iCal エクスポート
+  const exportIcal = () => {
+    const filteredTasks = tasks.filter(t => t.date >= new Date().toISOString().split("T")[0]);
+    const escape = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+    const toIcalDate = (d: string) => d.replace(/-/g, "");
+    const lines = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AeroSync//AeroSync//JA",
+      "X-WR-CALNAME:AeroSync", "CALSCALE:GREGORIAN",
+    ];
+    filteredTasks.forEach(t => {
+      lines.push("BEGIN:VEVENT");
+      lines.push(`UID:aerosync-${t.id}@aerosync`);
+      lines.push(`DTSTAMP:${new Date().toISOString().replace(/[-:]/g,"").split(".")[0]}Z`);
+      lines.push(`DTSTART;VALUE=DATE:${toIcalDate(t.date)}`);
+      lines.push(`DTEND;VALUE=DATE:${toIcalDate(t.date)}`);
+      lines.push(`SUMMARY:${escape(t.title)}`);
+      if (t.description) lines.push(`DESCRIPTION:${escape(t.description)}`);
+      if (t.location) lines.push(`LOCATION:${escape(t.location)}`);
+      lines.push("END:VEVENT");
+    });
+    lines.push("END:VCALENDAR");
+    const blob = new Blob([lines.join("\r\n")], { type: "text/calendar;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "aerosync-schedule.ics"; a.click();
+  };
+
+  // ⑩ メンバー出席履歴
+  const loadMemberAttendance = async (memberId: string) => {
+    setMemberAttendanceLoading(true);
+    try {
+      const sb = createClient();
+      const { data } = await sb.from("attendance_logs").select("*").eq("user_id", memberId).order("checked_in_at", { ascending: false }).limit(30);
+      if (data) setMemberAttendanceLogs(data as AttendanceLog[]);
+    } catch {}
+    finally { setMemberAttendanceLoading(false); }
   };
 
   // ── Excelインポート ──────────────────────────────────────────────
@@ -1352,6 +1631,7 @@ export default function AppShell() {
         } else {
           setQrScanData(null);
           setQrScanResult("checkin");
+          logActivity("入室", "attendance", data.logId || Date.now().toString(), { name: displayName });
         }
         // Refresh attendance logs for today
         const today = new Date().toISOString().split("T")[0];
@@ -1748,6 +2028,58 @@ export default function AppShell() {
                 </div>
               )}
             </div>
+
+            {/* ② 出席統計ダッシュボード */}
+            {(()=>{
+              if (attendanceStatsLoading) return <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center"><Loader2 size={16} className="animate-spin mx-auto text-gray-300"/></div>;
+              if (monthlyAttendance.length === 0) return null;
+              const totalCheckins = monthlyAttendance.length;
+              const completedLogs = monthlyAttendance.filter(l => l.duration_minutes != null);
+              const avgDuration = completedLogs.length > 0 ? Math.round(completedLogs.reduce((s,l) => s + (l.duration_minutes||0), 0) / completedLogs.length) : 0;
+              // 上位3名
+              const memberCounts: Record<string, {name:string;count:number}> = {};
+              monthlyAttendance.forEach(l => {
+                const key = l.user_id;
+                const name = l.user_name || l.user_email || l.user_id;
+                if (!memberCounts[key]) memberCounts[key] = { name, count: 0 };
+                memberCounts[key].count++;
+              });
+              const top3 = Object.values(memberCounts).sort((a,b) => b.count - a.count).slice(0,3);
+              const maxCount = top3[0]?.count || 1;
+              return (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                  <h2 className="text-base font-black text-gray-900 flex items-center gap-1.5 mb-3"><span>📊</span> 今月の出席統計</h2>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="bg-blue-50 rounded-xl p-2.5 text-center">
+                      <p className="text-lg font-black text-blue-700">{totalCheckins}</p>
+                      <p className="text-[10px] text-blue-500 font-bold">今月の出席</p>
+                    </div>
+                    <div className="bg-green-50 rounded-xl p-2.5 text-center">
+                      <p className="text-lg font-black text-green-700">{avgDuration}</p>
+                      <p className="text-[10px] text-green-500 font-bold">平均滞在(分)</p>
+                    </div>
+                    <div className="bg-purple-50 rounded-xl p-2.5 text-center">
+                      <p className="text-xs font-black text-purple-700 truncate">{top3[0]?.name.split("@")[0] || "-"}</p>
+                      <p className="text-[10px] text-purple-500 font-bold">最多出席</p>
+                    </div>
+                  </div>
+                  {top3.length > 0 && (
+                    <div className="space-y-2">
+                      {top3.map((m, i) => (
+                        <div key={m.name} className="flex items-center gap-2">
+                          <span className="text-[10px] font-black text-gray-400 w-4">{i+1}</span>
+                          <span className="text-xs font-bold text-gray-700 w-24 truncate">{m.name.split("@")[0]}</span>
+                          <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                            <div className="h-full rounded-full transition-all" style={{width:`${(m.count/maxCount)*100}%`, background:["#3b82f6","#10b981","#8b5cf6"][i]}}/>
+                          </div>
+                          <span className="text-[10px] font-bold text-gray-500 w-6 text-right">{m.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       );
@@ -1777,6 +2109,7 @@ export default function AppShell() {
                 {scheduleImporting?<Loader2 size={12} className="animate-spin"/>:<Upload size={12}/>} Excel
               </button>
             )}
+            <button onClick={exportIcal} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition-all active:scale-95"><Download size={12}/> iCal</button>
             {perms.manageTasks&&<button onClick={()=>setShowTaskForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> 追加</button>}
           </div>
         </div>
@@ -1981,6 +2314,7 @@ export default function AppShell() {
                       <Pill color={task.color}>{task.priority==="high"?"🔥高":task.priority==="medium"?"⚡中":"🌿低"}</Pill>
                       {task.assignees.includes(currentUserEmail)&&<Pill color={task.color}>担当</Pill>}
                       {task.photo&&<span className="text-[10px]">📷</span>}
+                      {task.recurrence&&task.recurrence!=="none"&&<span className="text-[10px]">🔁</span>}
                     </div>
                     {task.description&&<p className="text-xs text-gray-500 line-clamp-1">{task.description}</p>}
                     {task.notes&&<p className="text-xs line-clamp-1 mt-0.5" style={{color:task.color}}>📝 {task.notes}</p>}
@@ -1988,7 +2322,7 @@ export default function AppShell() {
                     {task.assignees.length>0&&<p className="text-[10px] text-gray-400 mt-0.5">👤 {task.assignees.length}人担当</p>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0" onClick={e=>e.stopPropagation()}>
-                    <button onClick={async(e)=>{e.stopPropagation();const nd=!task.done;setTasks(p=>p.map(t=>t.id===task.id?{...t,done:nd}:t));try{const sb=createClient();await sb.from('tasks').update({done:nd}).eq('id',task.id);}catch(er){console.log('done err',er);}}}
+                    <button onClick={async(e)=>{e.stopPropagation();const nd=!task.done;setTasks(p=>p.map(t=>t.id===task.id?{...t,done:nd}:t));try{const sb=createClient();await sb.from('tasks').update({done:nd}).eq('id',task.id);}catch(er){console.log('done err',er);}if(nd)logActivity("タスク完了","task",task.id,{title:task.title});}}
                       className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${task.done?"":"border-gray-200 hover:border-green-400"}`}
                       style={task.done?{background:"#22c55e",borderColor:"#22c55e"}:{}}>
                       {task.done&&<Check size={13} className="text-white"/>}
@@ -2009,6 +2343,8 @@ export default function AppShell() {
         {taskDetailId&&(()=>{
           const task = tasks.find(t=>t.id===taskDetailId);
           if(!task) return null;
+          // コメント・チェックリストをモーダル開いたとき初回ロード
+          if(!taskComments.find(c=>c.task_id===task.id)&&taskCommentInput==="") { loadTaskComments(task.id); }
           return (
             <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setTaskDetailId(null)}>
               <div className={`bg-white w-full rounded-t-3xl max-h-[90vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
@@ -2066,15 +2402,57 @@ export default function AppShell() {
                       </div>
                     </div>
                   )}
+                  {/* チェックリスト */}
+                  <div>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">チェックリスト</p>
+                    <div className="space-y-1.5 mb-2">
+                      {(task.checklist||[]).map(item=>(
+                        <div key={item.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                          <button onClick={()=>{const cl=(task.checklist||[]).map(c=>c.id===item.id?{...c,done:!c.done}:c);updateChecklist(task.id,cl);}} className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${item.done?"bg-green-500 border-green-500":"border-gray-300"}`}>{item.done&&<Check size={9} className="text-white"/>}</button>
+                          <span className={`text-xs flex-1 ${item.done?"line-through text-gray-400":"text-gray-700"}`}>{item.text}</span>
+                          <button onClick={()=>{const cl=(task.checklist||[]).filter(c=>c.id!==item.id);updateChecklist(task.id,cl);}} className="text-gray-300 hover:text-red-400 transition-colors"><X size={11}/></button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input value={newChecklistText} onChange={e=>setNewChecklistText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&newChecklistText.trim()){const cl=[...(task.checklist||[]),{id:Date.now().toString(),text:newChecklistText.trim(),done:false}];updateChecklist(task.id,cl);setNewChecklistText("");}}} placeholder="新しい項目 (Enter で追加)" className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                      <button onClick={()=>{if(!newChecklistText.trim())return;const cl=[...(task.checklist||[]),{id:Date.now().toString(),text:newChecklistText.trim(),done:false}];updateChecklist(task.id,cl);setNewChecklistText("");}} className="text-xs bg-blue-100 text-blue-700 font-bold px-3 rounded-xl hover:bg-blue-200 transition-colors">追加</button>
+                    </div>
+                  </div>
+
+                  {/* コメント */}
+                  <div>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">コメント</p>
+                    <div className="space-y-2 mb-2 max-h-40 overflow-y-auto">
+                      {taskComments.filter(c=>c.task_id===task.id).map(c=>(
+                        <div key={c.id} className="bg-gray-50 rounded-xl px-3 py-2">
+                          <div className="flex items-center justify-between gap-1 mb-0.5">
+                            <span className="text-[10px] font-bold text-gray-500">{c.user_name}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-gray-400">{new Date(c.created_at).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}</span>
+                              {c.user_id===currentUserId&&<button onClick={()=>deleteTaskComment(c.id)} className="text-gray-300 hover:text-red-400 transition-colors"><X size={10}/></button>}
+                            </div>
+                          </div>
+                          <p className="text-xs text-gray-700">{c.content}</p>
+                        </div>
+                      ))}
+                      {taskComments.filter(c=>c.task_id===task.id).length===0&&<p className="text-[10px] text-gray-300 text-center py-2">コメントはありません</p>}
+                    </div>
+                    <div className="flex gap-2">
+                      <input value={taskCommentInput} onChange={e=>setTaskCommentInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.nativeEvent.isComposing)addTaskComment(task.id);}} placeholder="コメントを追加..." className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                      <button onClick={()=>addTaskComment(task.id)} className="text-xs bg-blue-600 text-white font-bold px-3 rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-1"><Send size={10}/></button>
+                    </div>
+                  </div>
+
                   <div className="flex gap-2 pt-2">
                     <button onClick={async()=>{
                       setTasks(p=>p.map(t=>t.id===task.id?{...t,notes:taskEditDesc,photo:taskEditPhoto||undefined}:t));
-                      setTaskDetailId(null);
+                      setTaskDetailId(null); setTaskComments([]); setTaskCommentInput("");
                       try{const sb=createClient();await sb.from('tasks').update({notes:taskEditDesc,photo:taskEditPhoto}).eq('id',task.id);}catch(er){console.log('save err',er);}
                     }} className="flex-1 text-white font-bold py-3 rounded-2xl text-sm transition-all active:scale-[0.98]" style={{background:task.color}}>
                       保存して閉じる
                     </button>
-                    {perms.manageTasks&&<button onClick={async()=>{setTasks(p=>p.filter(t=>t.id!==task.id));setTaskDetailId(null);try{const sb=createClient();await sb.from("tasks").delete().eq("id",task.id);}catch(er){console.log(er);}}} className="w-12 bg-red-50 text-red-500 font-bold py-3 rounded-2xl text-sm hover:bg-red-100 transition-all flex items-center justify-center"><Trash2 size={15}/></button>}
+                    {perms.manageTasks&&<button onClick={async()=>{setTasks(p=>p.filter(t=>t.id!==task.id));setTaskDetailId(null);setTaskComments([]);try{const sb=createClient();await sb.from("tasks").delete().eq("id",task.id);}catch(er){console.log(er);}}} className="w-12 bg-red-50 text-red-500 font-bold py-3 rounded-2xl text-sm hover:bg-red-100 transition-all flex items-center justify-center"><Trash2 size={15}/></button>}
                   </div>
                 </div>
               </div>
@@ -2093,6 +2471,10 @@ export default function AppShell() {
               <div><p className="text-xs font-bold text-gray-500 mb-2">優先度</p><div className="flex gap-2">{(["low","medium","high"] as const).map(p=><button key={p} onClick={()=>setNewTask(prev=>({...prev,priority:p}))} className={`flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all ${newTask.priority===p?"border-blue-500 bg-blue-50 text-blue-700":"border-gray-200 text-gray-500"}`}>{p==="low"?"🌿低":p==="medium"?"⚡中":"🔥高"}</button>)}</div></div>
               <div><p className="text-xs font-bold text-gray-500 mb-2">カラー</p><div className="flex gap-2 flex-wrap">{TASK_COLORS.map(c=><button key={c} onClick={()=>setNewTask(p=>({...p,color:c}))} style={{background:c}} className={`w-7 h-7 rounded-full transition-all ${newTask.color===c?"scale-125 ring-2 ring-offset-1 ring-gray-400":""}`}/>)}</div></div>
               <div className="flex items-center justify-between py-1"><span className="text-sm font-medium text-gray-700">誰でも参加可能</span><Toggle checked={newTask.open} onChange={v=>setNewTask(p=>({...p,open:v}))} activeColor={appearance.accentColor}/></div>
+              <div className="flex gap-2 items-end">
+                <div className="flex-1"><p className="text-xs font-bold text-gray-500 mb-2">繰り返し</p><select value={newTaskRecurrence} onChange={e=>setNewTaskRecurrence(e.target.value as "none"|"weekly"|"monthly")} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"><option value="none">なし</option><option value="weekly">毎週</option><option value="monthly">毎月</option></select></div>
+                {newTaskRecurrence!=="none"&&<div className="w-24"><p className="text-xs font-bold text-gray-500 mb-2">回数</p><input type="number" min={1} max={12} value={newTaskRecurrenceCount} onChange={e=>setNewTaskRecurrenceCount(Math.max(1,Math.min(12,parseInt(e.target.value)||1)))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/></div>}
+              </div>
               <div><p className="text-xs font-bold text-gray-500 mb-2">担当者</p><div className="flex gap-2"><input placeholder="メール or 名前" value={newAssignee} onChange={e=>setNewAssignee(e.target.value)} className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/><button onClick={()=>{if(newAssignee.trim()){setNewTask(p=>({...p,assignees:[...p.assignees,newAssignee.trim()]}));setNewAssignee("");}}} className="bg-blue-100 text-blue-700 font-bold text-xs px-3 rounded-xl hover:bg-blue-200 transition-colors">追加</button></div>{newTask.assignees.length>0&&<div className="flex flex-wrap gap-1.5 mt-2">{newTask.assignees.map(a=><span key={a} className="flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2 py-1 rounded-full">{a}<button onClick={()=>setNewTask(p=>({...p,assignees:p.assignees.filter(x=>x!==a)}))}><X size={10}/></button></span>)}</div>}</div>
               <button onClick={addTask} className="w-full text-white font-bold py-3 rounded-2xl text-sm transition-all active:scale-[0.98]" style={{background:appearance.accentColor}}>タスクを追加</button>
             </div>
@@ -2209,6 +2591,45 @@ export default function AppShell() {
             }
           </div>
           {showWikiForm&&<div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setShowWikiForm(false)}><div className={`bg-white w-full rounded-t-3xl p-6 space-y-4 ${slideUp}`} onClick={e=>e.stopPropagation()}><div className="w-10 h-1 bg-gray-200 rounded-full mx-auto"/><h3 className="font-black text-gray-900 text-base">新規Wikiページ</h3><input placeholder="タイトル" value={newWiki.title} onChange={e=>setNewWiki(p=>({...p,title:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/><select value={newWiki.cat} onChange={e=>setNewWiki(p=>({...p,cat:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white">{WIKI_CATS.map(c=><option key={c}>{c}</option>)}</select><button onClick={addWiki} className="w-full text-white font-bold py-3 rounded-2xl text-sm" style={{background:appearance.accentColor}}>作成して編集</button></div></div>}
+
+          {/* ⑧ 共有ファイルセクション */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <h3 className="text-sm font-black text-gray-900 flex items-center gap-1.5">📎 共有ファイル</h3>
+              <button onClick={()=>fileUploadRef.current?.click()} disabled={fileUploading} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl text-white transition-all active:scale-95 disabled:opacity-50" style={{background:appearance.accentColor}}>
+                {fileUploading?<Loader2 size={12} className="animate-spin"/>:<Upload size={12}/>} アップロード
+              </button>
+              <input ref={fileUploadRef} type="file" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)uploadSharedFile(f);e.target.value="";}}/>
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto px-4 py-2 border-b border-gray-50">
+              {["すべて","ドキュメント","画像","動画","その他"].map(cat=>(
+                <button key={cat} onClick={()=>setFileFilter(cat)} className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full border transition-all ${fileFilter===cat?"text-white border-transparent":"bg-white text-gray-500 border-gray-200"}`} style={fileFilter===cat?{background:appearance.accentColor}:{}}>{cat}</button>
+              ))}
+            </div>
+            {sharedFilesLoading?(
+              <div className="flex justify-center py-6"><Loader2 size={16} className="animate-spin text-gray-300"/></div>
+            ):(
+              <div className="divide-y divide-gray-50">
+                {(fileFilter==="すべて"?sharedFiles:sharedFiles.filter(f=>f.category===fileFilter)).length===0?(
+                  <p className="text-xs text-gray-400 text-center py-6">ファイルがありません</p>
+                ):(fileFilter==="すべて"?sharedFiles:sharedFiles.filter(f=>f.category===fileFilter)).map(file=>(
+                  <div key={file.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base" style={{background:appearance.accentColor+"15"}}>
+                      {file.category==="画像"?"🖼️":file.category==="動画"?"🎬":file.category==="ドキュメント"?"📄":"📎"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-gray-900 truncate">{file.name}</p>
+                      <p className="text-[10px] text-gray-400">{file.uploaded_by_name} · {Math.round(file.size/1024)}KB</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <a href={file.url} target="_blank" rel="noreferrer" className="w-7 h-7 rounded-lg flex items-center justify-center bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"><Download size={12}/></a>
+                      {file.uploaded_by===currentUserId&&<button onClick={()=>deleteSharedFile(file)} className="w-7 h-7 rounded-lg flex items-center justify-center bg-red-50 text-red-500 hover:bg-red-100 transition-colors"><Trash2 size={12}/></button>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       );
     }
@@ -2276,6 +2697,9 @@ export default function AppShell() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={()=>{setAttendanceHistoryMember(member);loadMemberAttendance(member.id);}} className="w-8 h-8 rounded-xl flex items-center justify-center bg-teal-50 text-teal-600 transition-all hover:scale-110 active:scale-90">
+                      <CheckSquare size={14}/>
+                    </button>
                     {!isMe&&(
                       <button onClick={()=>setDmOpen(member)}
                         className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-90"
@@ -2364,6 +2788,69 @@ export default function AppShell() {
           </div>
         )}
 
+        {/* ⑩ メンバー出席履歴モーダル */}
+        {attendanceHistoryMember&&(
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setAttendanceHistoryMember(null)}>
+            <div className={`bg-white w-full rounded-t-3xl max-h-[85vh] overflow-y-auto ${slideUp}`} onClick={e=>e.stopPropagation()}>
+              <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mt-3"/>
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+                {attendanceHistoryMember.avatar_url
+                  ?<img src={attendanceHistoryMember.avatar_url} alt="" className="w-10 h-10 rounded-xl object-cover"/>
+                  :<div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-base" style={{background:appearance.accentColor}}>{(attendanceHistoryMember.display_name||"?").charAt(0).toUpperCase()}</div>
+                }
+                <div className="flex-1">
+                  <h3 className="font-black text-gray-900">{attendanceHistoryMember.display_name || attendanceHistoryMember.email}</h3>
+                  <p className="text-xs text-gray-400">出席履歴（最新30件）</p>
+                </div>
+                <button onClick={()=>setAttendanceHistoryMember(null)} className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center"><X size={13} className="text-gray-500"/></button>
+              </div>
+              <div className="p-4 space-y-3">
+                {memberAttendanceLoading ? (
+                  <div className="flex justify-center py-6"><Loader2 size={16} className="animate-spin text-gray-300"/></div>
+                ) : memberAttendanceLogs.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-6">出席記録がありません</p>
+                ) : (
+                  <>
+                    {/* 累計統計 */}
+                    {(()=>{
+                      const total = memberAttendanceLogs.length;
+                      const completed = memberAttendanceLogs.filter(l=>l.duration_minutes!=null);
+                      const totalMin = completed.reduce((s,l)=>s+(l.duration_minutes||0),0);
+                      const avgMin = completed.length>0?Math.round(totalMin/completed.length):0;
+                      return (
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="bg-blue-50 rounded-xl p-2.5 text-center"><p className="text-lg font-black text-blue-700">{total}</p><p className="text-[10px] text-blue-500 font-bold">総入室回数</p></div>
+                          <div className="bg-green-50 rounded-xl p-2.5 text-center"><p className="text-base font-black text-green-700">{totalMin>=60?`${Math.floor(totalMin/60)}h${totalMin%60}m`:`${totalMin}m`}</p><p className="text-[10px] text-green-500 font-bold">合計滞在時間</p></div>
+                          <div className="bg-purple-50 rounded-xl p-2.5 text-center"><p className="text-base font-black text-purple-700">{avgMin}分</p><p className="text-[10px] text-purple-500 font-bold">平均滞在時間</p></div>
+                        </div>
+                      );
+                    })()}
+                    <div className="space-y-1.5">
+                      {memberAttendanceLogs.map(log=>{
+                        const inTime = new Date(log.checked_in_at);
+                        const inStr = `${inTime.getHours().toString().padStart(2,"0")}:${inTime.getMinutes().toString().padStart(2,"0")}`;
+                        const dateStr = inTime.toLocaleDateString("ja-JP",{month:"short",day:"numeric",weekday:"short"});
+                        const outStr = log.checked_out_at?(()=>{const t=new Date(log.checked_out_at);return `${t.getHours().toString().padStart(2,"0")}:${t.getMinutes().toString().padStart(2,"0")}`;})():null;
+                        const durStr = log.duration_minutes!=null?(log.duration_minutes>=60?`${Math.floor(log.duration_minutes/60)}h${log.duration_minutes%60}m`:`${log.duration_minutes}m`):null;
+                        return (
+                          <div key={log.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2.5">
+                            <div className="text-[10px] font-bold text-gray-500 w-16 shrink-0">{dateStr}</div>
+                            <span className="text-xs text-gray-600">{inStr}</span>
+                            {outStr&&<><span className="text-gray-300 text-[10px]">→</span><span className="text-xs text-gray-600">{outStr}</span></>}
+                            <div className="flex-1"/>
+                            {durStr&&<span className="text-[11px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-lg">{durStr}</span>}
+                            {!log.checked_out_at&&<span className="text-[11px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-lg">入室中</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {groupOpen&&(
           <div className="fixed inset-0 bg-black/50 z-50 flex flex-col" onClick={()=>setGroupOpen(false)}>
             <div className="flex-1"/>
@@ -2425,6 +2912,7 @@ export default function AppShell() {
         {id:"notifications",label:"通知",icon:<Bell size={14}/>},
         {id:"privacy",label:"プライバシー",icon:<EyeIcon size={14}/>},
         {id:"data",label:"データ",icon:<Download size={14}/>},
+        {id:"budget",label:"予算",icon:<span className="text-sm">💰</span>},
         {id:"about",label:"アプリ情報",icon:<HelpCircle size={14}/>},
       ];
 
@@ -2816,8 +3304,110 @@ export default function AppShell() {
               </div>
             )}
 
+            {/* ⑤ 予算・費用管理 */}
+            {settingsTab==="budget"&&(
+              <>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <h3 className="text-sm font-black text-gray-900">費用を追加</h3>
+                  </div>
+                  <div className="p-4 space-y-3">
+                    <input placeholder="タイトル *" value={newExpense.title} onChange={e=>setNewExpense(p=>({...p,title:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    <input type="number" placeholder="金額 *" value={newExpense.amount} onChange={e=>setNewExpense(p=>({...p,amount:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    <select value={newExpense.category} onChange={e=>setNewExpense(p=>({...p,category:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white">
+                      {EXPENSE_CATS.map(c=><option key={c}>{c}</option>)}
+                    </select>
+                    <input type="date" value={newExpense.date} onChange={e=>setNewExpense(p=>({...p,date:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    <input placeholder="メモ（任意）" value={newExpense.note} onChange={e=>setNewExpense(p=>({...p,note:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                    <button onClick={addExpense} className="w-full text-white font-bold py-3 rounded-2xl text-sm transition-all active:scale-[0.98]" style={{background:appearance.accentColor}}>追加</button>
+                  </div>
+                </div>
+                {/* カテゴリ別バー */}
+                {expenses.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-black text-gray-900">合計支出</h3>
+                      <p className="text-2xl font-black text-gray-900">¥{expenses.reduce((s,e)=>s+e.amount,0).toLocaleString()}</p>
+                    </div>
+                    <div className="space-y-2">
+                      {EXPENSE_CATS.map(cat=>{
+                        const total = expenses.filter(e=>e.category===cat).reduce((s,e)=>s+e.amount,0);
+                        if(total===0) return null;
+                        const max = Math.max(...EXPENSE_CATS.map(c=>expenses.filter(e=>e.category===c).reduce((s,e)=>s+e.amount,0)));
+                        return (
+                          <div key={cat} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 w-16 shrink-0">{cat}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                              <div className="h-full rounded-full" style={{width:`${(total/max)*100}%`,background:appearance.accentColor}}/>
+                            </div>
+                            <span className="text-xs font-bold text-gray-700 w-20 text-right">¥{total.toLocaleString()}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {/* 費用一覧 */}
+                {expensesLoading ? (
+                  <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-gray-300"/></div>
+                ) : (
+                  <div className="space-y-2">
+                    {expenses.map(expense=>(
+                      <div key={expense.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3 px-4 py-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-gray-900 truncate">{expense.title}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <Pill color={appearance.accentColor}>{expense.category}</Pill>
+                            <span className="text-[10px] text-gray-400">{expense.date}</span>
+                            {expense.note&&<span className="text-[10px] text-gray-400 truncate">{expense.note}</span>}
+                          </div>
+                        </div>
+                        <p className="text-sm font-black text-gray-900 shrink-0">¥{expense.amount.toLocaleString()}</p>
+                        {expense.created_by===currentUserId&&<button onClick={()=>deleteExpense(expense.id)} className="text-gray-300 hover:text-red-400 transition-colors p-1 shrink-0"><Trash2 size={13}/></button>}
+                      </div>
+                    ))}
+                    {expenses.length===0&&<div className="text-center py-8 text-sm text-gray-400 bg-white rounded-2xl border border-gray-100">費用がありません</div>}
+                  </div>
+                )}
+              </>
+            )}
+
             {settingsTab==="about"&&(
               <>
+                {/* ⑨ アクティビティログ */}
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <h3 className="text-sm font-black text-gray-900 flex items-center gap-1.5">⚡ アクティビティ</h3>
+                    <button onClick={loadActivityLogs} className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center"><RefreshCw size={12} className="text-gray-500"/></button>
+                  </div>
+                  {activityLogsLoading ? (
+                    <div className="flex justify-center py-4"><Loader2 size={14} className="animate-spin text-gray-300"/></div>
+                  ) : activityLogs.length===0 ? (
+                    <p className="text-xs text-gray-400 text-center py-4">アクティビティがありません</p>
+                  ) : (
+                    <div className="divide-y divide-gray-50">
+                      {activityLogs.map(log=>{
+                        const now = Date.now();
+                        const created = new Date(log.created_at).getTime();
+                        const diff = Math.floor((now - created) / 1000);
+                        const relTime = diff < 60 ? "今" : diff < 3600 ? `${Math.floor(diff/60)}分前` : diff < 86400 ? `${Math.floor(diff/3600)}時間前` : `${Math.floor(diff/86400)}日前`;
+                        const icon = log.action.includes("作成")?"➕":log.action.includes("完了")?"✅":log.action.includes("追加")?"📦":log.action.includes("入室")?"🚪":"⚡";
+                        return (
+                          <div key={log.id} className="flex items-center gap-3 px-4 py-2.5">
+                            <span className="text-base shrink-0">{icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-gray-700 truncate">{log.user_name} · {log.action}</p>
+                              {log.details?.title&&<p className="text-[10px] text-gray-400 truncate">「{log.details.title}」</p>}
+                              {log.details?.name&&<p className="text-[10px] text-gray-400 truncate">「{log.details.name}」</p>}
+                            </div>
+                            <span className="text-[10px] text-gray-400 shrink-0">{relTime}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-100">
                   <SectionHeader title="アプリ情報"/>
                   <SettingsRow icon={<Star size={15} className="text-yellow-500"/>} iconBg="bg-yellow-100" title="バージョン" subtitle="AeroSync v2.0.0"/>
