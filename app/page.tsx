@@ -448,9 +448,10 @@ export default function AppShell() {
   const [newPin, setNewPin] = useState({ title: "", url: "", description: "" });
   const [scheduleView, setScheduleView] = useState<"calendar"|"gantt">("calendar");
   const [geminiApiKey, setGeminiApiKey] = useState(loadLS<string>("as_gemini_key", ""));
-  const [discordBotToken, setDiscordBotToken] = useState(loadLS<string>("as_discord_token", ""));
-  const [discordPollChannelId, setDiscordPollChannelId] = useState(loadLS<string>("as_discord_poll_ch", ""));
+  const [discordBotToken, setDiscordBotToken] = useState("");
+  const [discordPollChannelId, setDiscordPollChannelId] = useState("");
   const [discordPolls, setDiscordPolls] = useState<Record<string,string>>(loadLS("as_discord_polls", {}));
+  const [discordSettingsSaving, setDiscordSettingsSaving] = useState(false);
   const [discordSyncing, setDiscordSyncing] = useState(false);
   const [discordPosting, setDiscordPosting] = useState(false);
   const [displayNameEdit, setDisplayNameEdit] = useState("");
@@ -506,7 +507,7 @@ export default function AppShell() {
   const unreadCount = notifications.filter(n=>!n.read).length;
 
   // ── Discord チャンネル同期 state ─────────────────────────────────────────
-  const [discordGuildId, setDiscordGuildId] = useState(loadLS<string>("as_discord_guild", ""));
+  const [discordGuildId, setDiscordGuildId] = useState("");
   const [discordChannels, setDiscordChannels] = useState<DiscordChannel[]>([]);
   const [discordChannelsLoading, setDiscordChannelsLoading] = useState(false);
   const [activeDiscordChannel, setActiveDiscordChannel] = useState<DiscordChannel|null>(null);
@@ -799,11 +800,8 @@ export default function AppShell() {
     saveLS("as_teams", teams);
     saveLS("as_pins", pinnedLinks);
     saveLS("as_gemini_key", geminiApiKey);
-    saveLS("as_discord_token", discordBotToken);
-    saveLS("as_discord_poll_ch", discordPollChannelId);
     saveLS("as_discord_polls", discordPolls);
-    saveLS("as_discord_guild", discordGuildId);
-  },[roles,memberRoles,appearance,myVisualEffect,chatMessages,teams,pinnedLinks,geminiApiKey,discordBotToken,discordPollChannelId,discordPolls,discordGuildId,isMounted]);
+  },[roles,memberRoles,appearance,myVisualEffect,chatMessages,teams,pinnedLinks,geminiApiKey,discordPolls,isMounted]);
 
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[chatMessages]);
   useEffect(()=>{ dmEndRef.current?.scrollIntoView({behavior:"smooth"}); },[dmMessages]);
@@ -1313,6 +1311,38 @@ export default function AppShell() {
     finally { setAttendanceSyncing(false); }
   };
 
+  // ── Discord 共有設定（Supabase） ─────────────────────────────────────────
+  const loadDiscordSettings = async () => {
+    try {
+      const sb = createClient();
+      const { data } = await sb.from("app_settings").select("*").eq("id", "discord").single();
+      if (data) {
+        if (data.discord_bot_token) setDiscordBotToken(data.discord_bot_token);
+        if (data.discord_guild_id) setDiscordGuildId(data.discord_guild_id);
+        if (data.discord_poll_channel_id) setDiscordPollChannelId(data.discord_poll_channel_id);
+      }
+    } catch {}
+  };
+
+  const saveDiscordSettings = async () => {
+    setDiscordSettingsSaving(true);
+    try {
+      const sb = createClient();
+      const { data: { user } } = await sb.auth.getUser();
+      const { error } = await sb.from("app_settings").upsert({
+        id: "discord",
+        discord_bot_token: discordBotToken,
+        discord_guild_id: discordGuildId,
+        discord_poll_channel_id: discordPollChannelId,
+        updated_by: user?.email ?? user?.user_metadata?.full_name ?? "",
+        updated_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      alert("✅ Discord設定を全メンバーに反映しました");
+    } catch (e: any) { alert(`保存失敗: ${e.message}`); }
+    finally { setDiscordSettingsSaving(false); }
+  };
+
   // ── Discord チャンネル同期 ────────────────────────────────────────────────
   const fetchDiscordChannels = async () => {
     if (!discordBotToken) { alert("設定でBot Tokenを入力してください"); return; }
@@ -1396,7 +1426,12 @@ export default function AppShell() {
     if (activeTab === "discord" && discordBotToken && discordGuildId && discordChannels.length === 0) {
       fetchDiscordChannels();
     }
-  }, [activeTab]);
+  }, [activeTab, discordBotToken, discordGuildId]);
+
+  // セッション確立後にDiscord共有設定を読み込む
+  useEffect(() => {
+    if (session) loadDiscordSettings();
+  }, [session]);
 
   // ⑨ アクティビティログ（fire-and-forget）
   const logActivity = (action: string, entityType: string, entityId: string, details: any) => {
@@ -3473,93 +3508,116 @@ export default function AppShell() {
                   <SettingsRow icon={<Smartphone size={15} className="text-indigo-600"/>} iconBg="bg-indigo-100" title="アプリをインストール" subtitle="ホーム画面に追加してネイティブ体験"/>
                 </div>
 
-                {/* ── Discord 集積設定 ── */}
+                {/* ── Discord 集積設定（共有） ── */}
                 <div className="bg-white rounded-2xl border border-indigo-100 shadow-sm overflow-hidden divide-y divide-indigo-50">
                   <div className="px-4 py-3 bg-indigo-50 flex items-center gap-2">
                     <DiscordIcon/>
-                    <div>
-                      <p className="text-sm font-black text-indigo-800">Discord 集積設定</p>
-                      <p className="text-xs text-indigo-500">参加確認をDiscordに送って回答を自動取り込み</p>
+                    <div className="flex-1">
+                      <p className="text-sm font-black text-indigo-800">Discord 設定</p>
+                      <p className="text-xs text-indigo-500">管理者が設定するとメンバー全員に適用されます</p>
                     </div>
+                    {/* 管理者バッジ */}
+                    {canManageRoles
+                      ? <span className="text-[10px] font-black text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full">管理者</span>
+                      : <span className="text-[10px] font-black text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">閲覧のみ</span>
+                    }
                   </div>
-                  <div className="p-4 space-y-4">
-                    <div>
-                      <label className="text-xs font-bold text-gray-500 block mb-1.5">Bot Token <span className="text-red-400">*</span></label>
-                      <div className="relative">
-                        <input
-                          type="password"
-                          placeholder="Bot Token を入力..."
-                          value={discordBotToken}
-                          onChange={e=>setDiscordBotToken(e.target.value)}
-                          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 pr-14"
-                        />
-                        {discordBotToken && (
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-500 flex items-center gap-0.5"><Check size={10}/> 設定済み</span>
-                        )}
+
+                  {canManageRoles ? (
+                    /* ── 管理者: 編集可能フォーム ── */
+                    <div className="p-4 space-y-4">
+                      <div>
+                        <label className="text-xs font-bold text-gray-500 block mb-1.5">Bot Token <span className="text-red-400">*</span></label>
+                        <div className="relative">
+                          <input
+                            type="password"
+                            placeholder="Bot Token を入力..."
+                            value={discordBotToken}
+                            onChange={e=>setDiscordBotToken(e.target.value)}
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 pr-16"
+                          />
+                          {discordBotToken && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-500 flex items-center gap-0.5"><Check size={10}/> 設定済み</span>}
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1">Discord Developer Portal → Bot → Token をコピー</p>
                       </div>
-                      <p className="text-[10px] text-gray-400 mt-1">Discord Developer Portal → Bot → Token をコピー</p>
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-500 block mb-1.5">Guild ID（サーバーID） <span className="text-red-400">*</span></label>
-                      <div className="relative">
+                      <div>
+                        <label className="text-xs font-bold text-gray-500 block mb-1.5">Guild ID（サーバーID） <span className="text-red-400">*</span></label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="サーバーIDを入力 (例: 1234567890)"
+                            value={discordGuildId}
+                            onChange={e=>setDiscordGuildId(e.target.value)}
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 pr-16"
+                          />
+                          {discordGuildId && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-500 flex items-center gap-0.5"><Check size={10}/> 設定済み</span>}
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1">サーバー右クリック → IDをコピー（開発者モード必要）</p>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-gray-500 block mb-1.5">投票チャンネル ID</label>
                         <input
                           type="text"
-                          placeholder="サーバーIDを入力 (例: 1234567890)"
-                          value={discordGuildId}
-                          onChange={e=>setDiscordGuildId(e.target.value)}
-                          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 pr-14"
+                          placeholder="チャンネルIDを入力 (例: 1234567890)"
+                          value={discordPollChannelId}
+                          onChange={e=>setDiscordPollChannelId(e.target.value)}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                         />
-                        {discordGuildId && (
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-500 flex items-center gap-0.5"><Check size={10}/> 設定済み</span>
-                        )}
+                        <p className="text-[10px] text-gray-400 mt-1">チャンネル右クリック → IDをコピー（開発者モード必要）</p>
                       </div>
-                      <p className="text-[10px] text-gray-400 mt-1">サーバー右クリック → IDをコピー（開発者モード必要）</p>
+                      <div className="bg-green-50 rounded-xl p-3">
+                        <p className="text-[11px] text-green-700 font-bold">🌐 全メンバーに共有</p>
+                        <p className="text-[10px] text-green-600 mt-0.5">「保存して全員に適用」を押すと、Supabaseに保存されログイン中の全メンバーに自動反映されます。</p>
+                      </div>
+                      <div className="flex gap-2">
+                        {discordBotToken && discordGuildId && (
+                          <button
+                            onClick={async()=>{
+                              try {
+                                const res = await fetch(`/api/discord/channels?guildId=${discordGuildId}`, { headers: { "x-bot-token": discordBotToken } });
+                                const d = await res.json();
+                                if(d.channels) alert(`接続成功 ✅\nチャンネル数: ${d.channels.length}個`);
+                                else alert(`接続失敗 ❌\n${JSON.stringify(d.error)}`);
+                              } catch(e:any) { alert(`エラー: ${e.message}`); }
+                            }}
+                            className="flex-1 border border-indigo-200 text-indigo-700 font-bold py-2.5 rounded-xl text-sm hover:bg-indigo-50 transition-colors flex items-center justify-center gap-1.5">
+                            <Check size={13}/> 接続テスト
+                          </button>
+                        )}
+                        <button
+                          onClick={saveDiscordSettings}
+                          disabled={discordSettingsSaving}
+                          className="flex-1 font-bold py-2.5 rounded-xl text-sm text-white flex items-center justify-center gap-1.5 shadow-sm transition-all"
+                          style={{background:appearance.accentColor}}>
+                          {discordSettingsSaving ? <Loader2 size={13} className="animate-spin"/> : <Save size={13}/>}
+                          保存して全員に適用
+                        </button>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-500 block mb-1.5">投票を送信するチャンネル ID</label>
-                      <input
-                        type="text"
-                        placeholder={process.env.NEXT_PUBLIC_DISCORD_CHANNEL_ID || "チャンネルIDを入力 (例: 1234567890)"}
-                        value={discordPollChannelId}
-                        onChange={e=>setDiscordPollChannelId(e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                      />
-                      <p className="text-[10px] text-gray-400 mt-1">チャンネル右クリック → IDをコピー（開発者モード必要）</p>
+                  ) : (
+                    /* ── 一般メンバー: 読み取り専用表示 ── */
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-center gap-3 py-1">
+                        <div className="w-8 h-8 bg-indigo-50 rounded-xl flex items-center justify-center shrink-0"><DiscordIcon/></div>
+                        <div className="flex-1">
+                          <p className="text-xs font-bold text-gray-700">Bot Token</p>
+                          <p className="text-xs text-gray-400">{discordBotToken ? "●●●●●●●●●●●● (設定済み)" : "未設定"}</p>
+                        </div>
+                        {discordBotToken && <span className="text-[10px] font-bold text-green-500 flex items-center gap-0.5"><Check size={10}/> OK</span>}
+                      </div>
+                      <div className="flex items-center gap-3 py-1">
+                        <div className="w-8 h-8 bg-indigo-50 rounded-xl flex items-center justify-center shrink-0"><Hash size={14} className="text-indigo-500"/></div>
+                        <div className="flex-1">
+                          <p className="text-xs font-bold text-gray-700">Guild ID</p>
+                          <p className="text-xs text-gray-400">{discordGuildId || "未設定"}</p>
+                        </div>
+                        {discordGuildId && <span className="text-[10px] font-bold text-green-500 flex items-center gap-0.5"><Check size={10}/> OK</span>}
+                      </div>
+                      <div className="bg-indigo-50 rounded-xl p-3">
+                        <p className="text-[11px] text-indigo-600">設定の変更は管理者・オーナーのみ行えます。<br/>設定が完了すると自動的に反映されます。</p>
+                      </div>
                     </div>
-                    <div className="bg-indigo-50 rounded-xl p-3 space-y-1">
-                      <p className="text-xs font-bold text-indigo-700">使い方</p>
-                      <ol className="text-[11px] text-indigo-600 space-y-1 list-decimal list-inside">
-                        <li>スケジュールタブで日付を選択</li>
-                        <li>「参加状況」欄の「投票を送信」ボタンを押す</li>
-                        <li>Discordにアンケートが自動投稿される</li>
-                        <li>メンバーが ✅🟡❌ でリアクション</li>
-                        <li>「反応を同期」ボタンで AeroSync に取り込む</li>
-                      </ol>
-                    </div>
-                    <div className="bg-amber-50 rounded-xl p-3">
-                      <p className="text-[11px] text-amber-700 font-bold">⚠️ 注意事項</p>
-                      <ul className="text-[10px] text-amber-600 mt-1 space-y-0.5">
-                        <li>• Bot Token はこのデバイスにのみ保存されます</li>
-                        <li>• Discord連携済みのメンバーのみ同期されます</li>
-                        <li>• BotはそのチャンネルへのSend Messages権限が必要です</li>
-                      </ul>
-                    </div>
-                    {discordBotToken && (
-                      <button
-                        onClick={async()=>{
-                          const chId = discordPollChannelId || process.env.NEXT_PUBLIC_DISCORD_CHANNEL_ID;
-                          if(!chId){alert("Channel IDを入力してください");return;}
-                          try {
-                            const res = await fetch(`https://discord.com/api/v10/channels/${chId}`, { headers: { Authorization: `Bot ${discordBotToken}` } });
-                            if(res.ok) { const d = await res.json(); alert(`接続成功 ✅\nチャンネル名: #${d.name}`); }
-                            else { const e = await res.json(); alert(`接続失敗 ❌\n${JSON.stringify(e)}`); }
-                          } catch(e:any) { alert(`エラー: ${e.message}`); }
-                        }}
-                        className="w-full border border-indigo-200 text-indigo-700 font-bold py-2.5 rounded-xl text-sm hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2">
-                        <Check size={14}/> 接続テスト
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               </>
             )}
