@@ -20,7 +20,9 @@ const TARGET_OWNER_DISCORD_ID = "916106297190019102";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Tab = "home"|"schedule"|"inventory"|"wiki"|"members"|"settings";
+type Tab = "home"|"schedule"|"inventory"|"wiki"|"members"|"settings"|"discord";
+type DiscordChannel = { id:string; name:string; type:number; parent_id:string|null; position:number; topic?:string; };
+type DiscordMessage = { id:string; content:string; author:{id:string;username:string;avatar:string|null;discriminator:string}; timestamp:string; embeds?:any[]; };
 type AuthMode = "login"|"signup"|"check_email";
 type SettingsTab = "profile"|"roles"|"appearance"|"notifications"|"privacy"|"data"|"budget"|"about";
 
@@ -143,7 +145,7 @@ function ParticleEffect({ effect }: { effect:string }) {
   return <canvas ref={canvasRef} className="fixed inset-0 pointer-events-none z-10 opacity-30" style={{width:"100%",height:"100%"}}/>;
 }
 
-function DiscordIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.031.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>; }
+function DiscordIcon({ size=18 }:{size?:number}) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.031.053a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>; }
 function Pill({ color, children }: { color?:string; children:React.ReactNode }) { return <span style={{background:color?color+"22":undefined,color,border:`1px solid ${color}44`}} className="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">{children}</span>; }
 function Toggle({ checked, onChange, activeColor="#3b82f6" }: { checked:boolean; onChange:(v:boolean)=>void; activeColor?:string }) { return <label className="relative inline-flex items-center cursor-pointer" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)} className="sr-only peer"/><div className="w-11 h-6 bg-gray-200 rounded-full transition-all duration-300" style={{background:checked?activeColor:"#e5e7eb"}}/><div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-300" style={{transform:checked?"translateX(20px)":"translateX(0)"}}/></label>; }
 function SectionHeader({ title }: { title:string }) { return <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-4 py-2.5">{title}</p>; }
@@ -502,6 +504,19 @@ export default function AppShell() {
   const [memberAttendanceLoading, setMemberAttendanceLoading] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadCount = notifications.filter(n=>!n.read).length;
+
+  // ── Discord チャンネル同期 state ─────────────────────────────────────────
+  const [discordGuildId, setDiscordGuildId] = useState(loadLS<string>("as_discord_guild", ""));
+  const [discordChannels, setDiscordChannels] = useState<DiscordChannel[]>([]);
+  const [discordChannelsLoading, setDiscordChannelsLoading] = useState(false);
+  const [activeDiscordChannel, setActiveDiscordChannel] = useState<DiscordChannel|null>(null);
+  const [discordMessages, setDiscordMessages] = useState<DiscordMessage[]>([]);
+  const [discordChatInput, setDiscordChatInput] = useState("");
+  const [discordChatSending, setDiscordChatSending] = useState(false);
+  const [discordMessagesLoading, setDiscordMessagesLoading] = useState(false);
+  const lastDiscordMsgId = useRef<string>("");
+  const discordPollRef = useRef<ReturnType<typeof setInterval>|null>(null);
+  const discordMsgEndRef = useRef<HTMLDivElement>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
   // ── ユーザー情報の抽出 ───────────────────────────────────────────
@@ -787,10 +802,12 @@ export default function AppShell() {
     saveLS("as_discord_token", discordBotToken);
     saveLS("as_discord_poll_ch", discordPollChannelId);
     saveLS("as_discord_polls", discordPolls);
-  },[roles,memberRoles,appearance,myVisualEffect,chatMessages,teams,pinnedLinks,geminiApiKey,discordBotToken,discordPollChannelId,discordPolls,isMounted]);
+    saveLS("as_discord_guild", discordGuildId);
+  },[roles,memberRoles,appearance,myVisualEffect,chatMessages,teams,pinnedLinks,geminiApiKey,discordBotToken,discordPollChannelId,discordPolls,discordGuildId,isMounted]);
 
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[chatMessages]);
   useEffect(()=>{ dmEndRef.current?.scrollIntoView({behavior:"smooth"}); },[dmMessages]);
+  useEffect(()=>{ discordMsgEndRef.current?.scrollIntoView({behavior:"smooth"}); },[discordMessages]);
   useEffect(()=>{ if(searchOpen) setTimeout(()=>searchRef.current?.focus(),100); },[searchOpen]);
 
   useEffect(()=>{
@@ -1295,6 +1312,91 @@ export default function AppShell() {
     } catch (e: any) { alert(`エラー: ${e.message}`); }
     finally { setAttendanceSyncing(false); }
   };
+
+  // ── Discord チャンネル同期 ────────────────────────────────────────────────
+  const fetchDiscordChannels = async () => {
+    if (!discordBotToken) { alert("設定でBot Tokenを入力してください"); return; }
+    if (!discordGuildId) { alert("設定でGuild IDを入力してください"); return; }
+    setDiscordChannelsLoading(true);
+    try {
+      const res = await fetch(`/api/discord/channels?guildId=${discordGuildId}`, {
+        headers: { "x-bot-token": discordBotToken },
+      });
+      const data = await res.json();
+      if (data.error) { alert(`チャンネル取得失敗: ${data.error}`); return; }
+      setDiscordChannels(data.channels ?? []);
+    } catch (e: any) { alert(`エラー: ${e.message}`); }
+    finally { setDiscordChannelsLoading(false); }
+  };
+
+  const fetchDiscordMessages = async (channelId: string, after?: string) => {
+    if (!discordBotToken) return;
+    try {
+      const url = `/api/discord/messages?channelId=${channelId}&limit=50${after?`&after=${after}`:""}`;
+      const res = await fetch(url, { headers: { "x-bot-token": discordBotToken } });
+      const data = await res.json();
+      if (data.error) { console.error(data.error); return; }
+      const msgs: DiscordMessage[] = data.messages ?? [];
+      if (after) {
+        // incremental: append only new messages
+        if (msgs.length > 0) {
+          setDiscordMessages(prev => [...prev, ...msgs]);
+          lastDiscordMsgId.current = msgs[msgs.length - 1].id;
+        }
+      } else {
+        // initial load
+        setDiscordMessages(msgs);
+        if (msgs.length > 0) lastDiscordMsgId.current = msgs[msgs.length - 1].id;
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const selectDiscordChannel = async (ch: DiscordChannel) => {
+    setActiveDiscordChannel(ch);
+    setDiscordMessages([]);
+    lastDiscordMsgId.current = "";
+    setDiscordMessagesLoading(true);
+    await fetchDiscordMessages(ch.id);
+    setDiscordMessagesLoading(false);
+  };
+
+  const sendDiscordMessage = async () => {
+    if (!discordChatInput.trim() || !activeDiscordChannel || discordChatSending) return;
+    const content = discordChatInput.trim();
+    setDiscordChatInput("");
+    setDiscordChatSending(true);
+    try {
+      const res = await fetch("/api/discord/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-bot-token": discordBotToken },
+        body: JSON.stringify({ channelId: activeDiscordChannel.id, content, userName: displayName }),
+      });
+      const data = await res.json();
+      if (data.error) { alert(`送信失敗: ${data.error}`); setDiscordChatInput(content); return; }
+      // fetch latest messages to show the sent one
+      await fetchDiscordMessages(activeDiscordChannel.id, lastDiscordMsgId.current || undefined);
+    } catch (e: any) { alert(`エラー: ${e.message}`); setDiscordChatInput(content); }
+    finally { setDiscordChatSending(false); }
+  };
+
+  // ── Discord ポーリング useEffect ──────────────────────────────────────────
+  useEffect(() => {
+    if (activeDiscordChannel && discordBotToken && activeTab === "discord") {
+      discordPollRef.current = setInterval(() => {
+        fetchDiscordMessages(activeDiscordChannel.id, lastDiscordMsgId.current || undefined);
+      }, 5000);
+    }
+    return () => {
+      if (discordPollRef.current) { clearInterval(discordPollRef.current); discordPollRef.current = null; }
+    };
+  }, [activeDiscordChannel, discordBotToken, activeTab]);
+
+  // Discord タブに切り替えたときにチャンネルを自動ロード
+  useEffect(() => {
+    if (activeTab === "discord" && discordBotToken && discordGuildId && discordChannels.length === 0) {
+      fetchDiscordChannels();
+    }
+  }, [activeTab]);
 
   // ⑨ アクティビティログ（fire-and-forget）
   const logActivity = (action: string, entityType: string, entityId: string, details: any) => {
@@ -2904,6 +3006,189 @@ export default function AppShell() {
       </div>
     );
 
+    if(activeTab==="discord") {
+      // チャンネルをカテゴリ別にグループ化
+      const categories = discordChannels.filter(c=>c.type===4).sort((a,b)=>a.position-b.position);
+      const textChannels = discordChannels.filter(c=>c.type===0||c.type===5);
+      const getChannelsByCategory = (catId: string|null) =>
+        textChannels.filter(c=>c.parent_id===catId).sort((a,b)=>a.position-b.position);
+      const uncategorized = getChannelsByCategory(null);
+
+      const fmtTime = (ts: string) => {
+        const d = new Date(ts);
+        return `${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
+      };
+      const isAeroSyncMsg = (m: DiscordMessage) => m.content.startsWith("**[AeroSync]");
+
+      if (!discordBotToken || !discordGuildId) {
+        return (
+          <div className={`${fadeIn} flex flex-col items-center justify-center h-full py-20 px-6 text-center gap-4`}>
+            <div className="w-16 h-16 rounded-2xl bg-indigo-100 flex items-center justify-center">
+              <DiscordIcon size={32}/>
+            </div>
+            <h2 className="font-black text-gray-800 text-lg">Discord連携</h2>
+            <p className="text-sm text-gray-500 max-w-xs">設定 → 通知 から Bot Token と Guild ID を入力すると、Discordのチャンネルが一覧表示されます。</p>
+            <button onClick={()=>{setActiveTab("settings");setSettingsTab("notifications");}}
+              className="px-6 py-3 rounded-2xl font-bold text-white text-sm shadow-lg"
+              style={{background:appearance.accentColor}}>
+              設定を開く
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <div className={`${fadeIn} flex h-full`} style={{height:"calc(100vh - 140px)"}}>
+          {/* ── サイドバー: チャンネル一覧 ── */}
+          <div className="w-[200px] shrink-0 bg-gray-900 flex flex-col overflow-hidden" style={{borderRight:"1px solid rgba(255,255,255,0.06)"}}>
+            <div className="px-3 pt-4 pb-2 flex items-center justify-between">
+              <p className="text-xs font-black text-white/80 truncate">サーバー</p>
+              <button onClick={fetchDiscordChannels} disabled={discordChannelsLoading}
+                className="w-6 h-6 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+                <RefreshCw size={10} className={`text-white/70 ${discordChannelsLoading?"animate-spin":""}`}/>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto py-1">
+              {discordChannelsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 size={18} className="text-white/40 animate-spin"/>
+                </div>
+              ) : discordChannels.length === 0 ? (
+                <div className="px-3 py-4 text-center">
+                  <p className="text-xs text-white/30">チャンネルなし</p>
+                  <button onClick={fetchDiscordChannels} className="mt-2 text-[10px] text-indigo-400 hover:text-indigo-300">再取得</button>
+                </div>
+              ) : (
+                <>
+                  {/* カテゴリなしチャンネル */}
+                  {uncategorized.map(ch=>(
+                    <button key={ch.id} onClick={()=>selectDiscordChannel(ch)}
+                      className={`w-full flex items-center gap-1.5 px-2 py-1.5 mx-1 rounded-lg text-left transition-all ${activeDiscordChannel?.id===ch.id?"bg-white/20 text-white":"text-white/40 hover:text-white/70 hover:bg-white/10"}`}
+                      style={{width:"calc(100% - 8px)"}}>
+                      <Hash size={13} className="shrink-0"/>
+                      <span className="text-xs font-medium truncate">{ch.name}</span>
+                    </button>
+                  ))}
+                  {/* カテゴリ別チャンネル */}
+                  {categories.map(cat=>{
+                    const chs = getChannelsByCategory(cat.id);
+                    if(chs.length===0) return null;
+                    return (
+                      <div key={cat.id} className="mt-2">
+                        <p className="px-2 py-1 text-[10px] font-black text-white/30 uppercase tracking-wider truncate">{cat.name}</p>
+                        {chs.map(ch=>(
+                          <button key={ch.id} onClick={()=>selectDiscordChannel(ch)}
+                            className={`w-full flex items-center gap-1.5 px-2 py-1.5 mx-1 rounded-lg text-left transition-all ${activeDiscordChannel?.id===ch.id?"bg-white/20 text-white":"text-white/40 hover:text-white/70 hover:bg-white/10"}`}
+                            style={{width:"calc(100% - 8px)"}}>
+                            <Hash size={13} className="shrink-0"/>
+                            <span className="text-xs font-medium truncate">{ch.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ── メインエリア: メッセージ表示 ── */}
+          <div className="flex-1 flex flex-col overflow-hidden bg-gray-800">
+            {!activeDiscordChannel ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 px-6">
+                <Hash size={40} className="text-white/20"/>
+                <p className="text-white/40 text-sm font-bold">チャンネルを選択してください</p>
+                <p className="text-white/20 text-xs">左側のリストからテキストチャンネルを選ぶと<br/>メッセージが表示されます</p>
+              </div>
+            ) : (
+              <>
+                {/* チャンネルヘッダー */}
+                <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2 shrink-0 bg-gray-800/80 backdrop-blur-md">
+                  <Hash size={16} className="text-white/60"/>
+                  <p className="font-black text-white text-sm">{activeDiscordChannel.name}</p>
+                  {activeDiscordChannel.topic && <p className="text-white/30 text-xs ml-1 truncate">— {activeDiscordChannel.topic}</p>}
+                  <button onClick={()=>fetchDiscordMessages(activeDiscordChannel.id)}
+                    className="ml-auto w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+                    <RefreshCw size={12} className="text-white/60"/>
+                  </button>
+                </div>
+
+                {/* メッセージリスト */}
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+                  {discordMessagesLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 size={22} className="text-white/40 animate-spin"/>
+                    </div>
+                  ) : discordMessages.length===0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-2">
+                      <MessageCircle size={32} className="text-white/20"/>
+                      <p className="text-white/30 text-sm">メッセージがありません</p>
+                    </div>
+                  ) : (
+                    discordMessages.map(msg=>{
+                      const isOwn = isAeroSyncMsg(msg);
+                      const avatarUrl = msg.author.avatar
+                        ? `https://cdn.discordapp.com/avatars/${msg.author.id}/${msg.author.avatar}.png?size=40`
+                        : null;
+                      return (
+                        <div key={msg.id} className={`flex gap-2.5 group ${isOwn?"opacity-90":""}`}>
+                          {/* アバター */}
+                          <div className="w-8 h-8 rounded-full shrink-0 overflow-hidden bg-indigo-600 flex items-center justify-center mt-0.5">
+                            {avatarUrl
+                              ? <img src={avatarUrl} alt={msg.author.username} className="w-full h-full object-cover"/>
+                              : <span className="text-white text-xs font-bold">{msg.author.username.charAt(0).toUpperCase()}</span>
+                            }
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2">
+                              <span className={`text-xs font-black ${isOwn?"text-indigo-300":"text-white/80"}`}>
+                                {isOwn?"[AeroSync]":msg.author.username}
+                              </span>
+                              <span className="text-[10px] text-white/20">{fmtTime(msg.timestamp)}</span>
+                            </div>
+                            <p className="text-sm text-white/70 leading-relaxed break-words">{msg.content}</p>
+                            {msg.embeds && msg.embeds.length>0 && msg.embeds[0].title && (
+                              <div className="mt-1 bg-white/10 rounded-lg px-3 py-2 border-l-2 border-indigo-400">
+                                <p className="text-xs font-bold text-white/80">{msg.embeds[0].title}</p>
+                                {msg.embeds[0].description&&<p className="text-xs text-white/50 mt-0.5 whitespace-pre-wrap">{msg.embeds[0].description}</p>}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div ref={discordMsgEndRef}/>
+                </div>
+
+                {/* 入力エリア */}
+                <div className="p-3 bg-gray-800 border-t border-white/10 shrink-0">
+                  <div className="flex gap-2 bg-gray-700 rounded-xl px-3 py-2 items-end">
+                    <input
+                      value={discordChatInput}
+                      onChange={e=>setDiscordChatInput(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();sendDiscordMessage();}}}
+                      placeholder={`#${activeDiscordChannel.name} にメッセージを送信`}
+                      className="flex-1 bg-transparent text-white text-sm placeholder-white/30 focus:outline-none resize-none"
+                    />
+                    <button onClick={sendDiscordMessage} disabled={!discordChatInput.trim()||discordChatSending}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center transition-all shrink-0"
+                      style={{background:discordChatInput.trim()&&!discordChatSending?appearance.accentColor:"rgba(255,255,255,0.1)"}}>
+                      {discordChatSending
+                        ? <Loader2 size={14} className="text-white animate-spin"/>
+                        : <Send size={14} className={discordChatInput.trim()?"text-white":"text-white/30"}/>
+                      }
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-white/20 mt-1 pl-1">AeroSyncユーザー「{displayName}」として送信されます</p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     if(activeTab==="settings") {
       const SETTINGS_TABS: {id:SettingsTab; label:string; icon:React.ReactNode}[] = [
         {id:"profile",label:"プロフィール",icon:<User size={14}/>},
@@ -3215,6 +3500,22 @@ export default function AppShell() {
                       <p className="text-[10px] text-gray-400 mt-1">Discord Developer Portal → Bot → Token をコピー</p>
                     </div>
                     <div>
+                      <label className="text-xs font-bold text-gray-500 block mb-1.5">Guild ID（サーバーID） <span className="text-red-400">*</span></label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="サーバーIDを入力 (例: 1234567890)"
+                          value={discordGuildId}
+                          onChange={e=>setDiscordGuildId(e.target.value)}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 pr-14"
+                        />
+                        {discordGuildId && (
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-500 flex items-center gap-0.5"><Check size={10}/> 設定済み</span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1">サーバー右クリック → IDをコピー（開発者モード必要）</p>
+                    </div>
+                    <div>
                       <label className="text-xs font-bold text-gray-500 block mb-1.5">投票を送信するチャンネル ID</label>
                       <input
                         type="text"
@@ -3483,10 +3784,17 @@ export default function AppShell() {
 
       <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-gray-100 z-30" style={{paddingBottom:"env(safe-area-inset-bottom)"}}>
         <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
-          {([{id:"home",Icon:Home,label:"ホーム"},{id:"schedule",Icon:Calendar,label:"予定"},{id:"inventory",Icon:Package,label:"在庫"},{id:"members",Icon:Users,label:"メンバー"},{id:"settings",Icon:Settings,label:"設定"}] as const).map(({id,Icon,label})=>(
+          {([
+            {id:"home" as Tab, label:"ホーム", icon:(active:boolean)=><Home size={20} strokeWidth={active?2.5:1.8}/>},
+            {id:"schedule" as Tab, label:"予定", icon:(active:boolean)=><Calendar size={20} strokeWidth={active?2.5:1.8}/>},
+            {id:"inventory" as Tab, label:"在庫", icon:(active:boolean)=><Package size={20} strokeWidth={active?2.5:1.8}/>},
+            {id:"members" as Tab, label:"メンバー", icon:(active:boolean)=><Users size={20} strokeWidth={active?2.5:1.8}/>},
+            {id:"discord" as Tab, label:"Discord", icon:(_active:boolean)=><DiscordIcon size={20}/>},
+            {id:"settings" as Tab, label:"設定", icon:(active:boolean)=><Settings size={20} strokeWidth={active?2.5:1.8}/>},
+          ]).map(({id,label,icon})=>(
             <button key={id} onClick={()=>{setActiveTab(id);setActiveWiki(null);}} className="flex flex-col items-center justify-center w-full h-full gap-0.5 transition-all duration-200" style={{color:activeTab===id?appearance.accentColor:"#9ca3af"}}>
               <div className="p-1.5 rounded-xl transition-all duration-200" style={activeTab===id?{background:appearance.accentColor+"22"}:{}}>
-                <Icon size={20} strokeWidth={activeTab===id?2.5:1.8}/>
+                {icon(activeTab===id)}
               </div>
               <span className="text-[10px] font-bold">{label}</span>
             </button>
