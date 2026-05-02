@@ -11,7 +11,7 @@ import {
   MapPin, CheckSquare, TrendingUp, Zap, Shield, Crown,
   Palette, Wand2, ChevronDown, RotateCcw, Moon, Sun, Globe,
   Volume2, VolumeX, Vibrate, Eye as EyeIcon, EyeOff as EyeOffIcon,
-  Copy, Download, Upload, RefreshCw, HelpCircle, Star, Flame, Home, AtSign, BellRing
+  Copy, Download, Upload, RefreshCw, HelpCircle, Star, Flame, Home, AtSign, BellRing, Pencil, FileSpreadsheet
 } from "lucide-react";
 
 // ─── Constants & Settings ──────────────────────────────────────────────────────
@@ -402,9 +402,14 @@ export default function AppShell() {
   const [showInvCatForm, setShowInvCatForm] = useState(false);
   const [newInvCat, setNewInvCat] = useState("");
   const imgRef = useRef<HTMLInputElement>(null);
+  const invEditImgRef = useRef<HTMLInputElement>(null);
   const xlsxImportRef = useRef<HTMLInputElement>(null);
   const [invFilter, setInvFilter] = useState("すべて");
   const [xlsxImporting, setXlsxImporting] = useState(false);
+  const [editInvItem, setEditInvItem] = useState<InventoryItem|null>(null);
+  const [editInvForm, setEditInvForm] = useState({ name:"", total:"", stock:"", emoji:"📦", image:null as string|null, category:INV_CATS[0] });
+  const [showSchedExcelMenu, setShowSchedExcelMenu] = useState(false);
+  const [showInvExcelMenu, setShowInvExcelMenu] = useState(false);
 
   const [wikis, setWikis] = useState<WikiPage[]>([]);
   const [activeWiki, setActiveWiki] = useState<WikiPage|null>(null);
@@ -2242,9 +2247,18 @@ export default function AppShell() {
           <div className="flex items-center gap-2">
             {perms.manageTasks&&<button onClick={()=>spreadsheetRef.current?.click()} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition-all active:scale-95"><Upload size={14}/> CSV</button>}
             {perms.manageTasks&&(
-              <button onClick={()=>xlsxScheduleRef.current?.click()} disabled={scheduleImporting} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition-all active:scale-95 disabled:opacity-50">
-                {scheduleImporting?<Loader2 size={12} className="animate-spin"/>:<Upload size={12}/>} Excel
-              </button>
+              <div className="relative">
+                <button onClick={()=>setShowSchedExcelMenu(v=>!v)} disabled={scheduleImporting} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition-all active:scale-95 disabled:opacity-50">
+                  {scheduleImporting?<Loader2 size={12} className="animate-spin"/>:<FileSpreadsheet size={12}/>} Excel <ChevronDown size={10}/>
+                </button>
+                {showSchedExcelMenu&&(
+                  <div className="absolute right-0 top-9 z-30 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden w-44" onMouseLeave={()=>setShowSchedExcelMenu(false)}>
+                    <button onClick={()=>{setShowSchedExcelMenu(false);xlsxScheduleRef.current?.click();}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"><Upload size={12} className="text-emerald-500"/> Excelからインポート</button>
+                    <a href="/api/schedule/excel" download="aerosync_schedule_template.xlsx" onClick={()=>setShowSchedExcelMenu(false)} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"><Download size={12} className="text-blue-500"/> テンプレートをDL</a>
+                    <button onClick={()=>{setShowSchedExcelMenu(false);const csv=[["タスク名","日付","説明","優先度","場所","カラー","担当者（カンマ区切り）","繰り返し"],...tasks.map(t=>[t.title,t.date,t.description||"",t.priority,t.location||"",t.color,t.assignees.join(","),t.recurrence||"none"])].map(r=>r.join("\t")).join("\n");navigator.clipboard.writeText(csv).then(()=>alert("スプレッドシートに貼り付けられる形式でコピーしました！\nGoogle Sheetsを開いて Ctrl+V で貼り付けてください。")).catch(()=>alert("コピーに失敗しました"));}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"><Copy size={12} className="text-purple-500"/> Sheetsにコピー</button>
+                  </div>
+                )}
+              </div>
             )}
             <button onClick={exportIcal} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition-all active:scale-95"><Download size={12}/> iCal</button>
             {perms.manageTasks&&<button onClick={()=>setShowTaskForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> 追加</button>}
@@ -2627,9 +2641,18 @@ export default function AppShell() {
           <div className="flex gap-2">
             {perms.manageInventory&&(
               <>
-                <button onClick={()=>xlsxImportRef.current?.click()} disabled={xlsxImporting} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all active:scale-95 disabled:opacity-50">
-                  {xlsxImporting?<Loader2 size={12} className="animate-spin"/>:<Upload size={12}/>} Excel
-                </button>
+                <div className="relative">
+                  <button onClick={()=>setShowInvExcelMenu(v=>!v)} disabled={xlsxImporting} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all active:scale-95 disabled:opacity-50">
+                    {xlsxImporting?<Loader2 size={12} className="animate-spin"/>:<FileSpreadsheet size={12}/>} Excel <ChevronDown size={10}/>
+                  </button>
+                  {showInvExcelMenu&&(
+                    <div className="absolute right-0 top-9 z-30 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden w-44" onMouseLeave={()=>setShowInvExcelMenu(false)}>
+                      <button onClick={()=>{setShowInvExcelMenu(false);xlsxImportRef.current?.click();}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"><Upload size={12} className="text-emerald-500"/> Excelからインポート</button>
+                      <a href="/api/inventory/excel" download="aerosync_inventory_template.xlsx" onClick={()=>setShowInvExcelMenu(false)} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"><Download size={12} className="text-blue-500"/> テンプレートをDL</a>
+                      <button onClick={()=>{setShowInvExcelMenu(false);const csv=[["機材名","総数","在庫","カテゴリ","絵文字"],...inventory.map(i=>[i.name,i.total,i.stock,i.category,i.isEmoji?i.image:""])].map(r=>r.join("\t")).join("\n");navigator.clipboard.writeText(csv).then(()=>alert("スプレッドシートに貼り付けられる形式でコピーしました！\nGoogle Sheetsを開いて Ctrl+V で貼り付けてください。")).catch(()=>alert("コピーに失敗しました"));}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"><Copy size={12} className="text-purple-500"/> Sheetsにコピー</button>
+                    </div>
+                  )}
+                </div>
                 <input ref={xlsxImportRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)handleXlsxImport(f);e.target.value="";}}/>
                 <button onClick={()=>setShowInvForm(true)} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95" style={{background:appearance.accentColor}}><Plus size={14}/> 追加</button>
               </>
@@ -2661,7 +2684,12 @@ export default function AppShell() {
             <div key={item.id} className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden transition-all hover:shadow-md ${fadeIn}`}>
               <div className="relative">
                 {item.isEmoji?<div className="h-24 bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center text-5xl">{item.image}</div>:<img src={item.image} alt={item.name} className="w-full h-24 object-cover"/>}
-                {perms.manageInventory&&<button onClick={async ()=>{if(!confirm(`「${item.name}」を削除しますか？`))return;setInventory(p=>p.filter(x=>x.id!==item.id));try{const sb=createClient();await sb.from('inventory').delete().eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="absolute top-1.5 right-1.5 w-6 h-6 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-400 shadow-sm transition-all"><Trash2 size={11}/></button>}
+                {perms.manageInventory&&(
+                  <div className="absolute top-1.5 right-1.5 flex gap-1">
+                    <button onClick={()=>{setEditInvItem(item);setEditInvForm({name:item.name,total:String(item.total),stock:String(item.stock),emoji:item.isEmoji?item.image:"📦",image:item.isEmoji?null:item.image,category:item.category});}} className="w-6 h-6 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-blue-400 shadow-sm transition-all"><Pencil size={10}/></button>
+                    <button onClick={async ()=>{if(!confirm(`「${item.name}」を削除しますか？`))return;setInventory(p=>p.filter(x=>x.id!==item.id));try{const sb=createClient();await sb.from('inventory').delete().eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="w-6 h-6 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-400 shadow-sm transition-all"><Trash2 size={11}/></button>
+                  </div>
+                )}
                 <div className="absolute top-1.5 left-1.5"><Pill color={appearance.accentColor}>{item.category}</Pill></div>
                 {item.stock===0&&<div className="absolute inset-0 bg-black/40 flex items-center justify-center"><span className="text-white font-black text-xs bg-red-500 px-2 py-0.5 rounded-full">在庫切れ</span></div>}
               </div>
@@ -2671,7 +2699,18 @@ export default function AppShell() {
                   <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden"><div className="h-full rounded-full transition-all duration-500" style={{width:`${Math.min(100,(item.stock/Math.max(1,item.total))*100)}%`,background:item.stock===0?"#ef4444":item.stock<item.total*0.3?"#f59e0b":appearance.accentColor}}/></div>
                   <span className="text-[10px] font-bold text-gray-500 shrink-0">{item.stock}/{item.total}</span>
                 </div>
-                {perms.manageInventory&&<div className="flex gap-1"><button onClick={async()=>{const ns=Math.max(0,item.stock-1);setInventory(p=>p.map(x=>x.id===item.id?{...x,stock:ns}:x));try{const sb=createClient();await sb.from('inventory').update({stock:ns}).eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="flex-1 py-1 bg-red-50 text-red-500 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors">−</button><button onClick={async()=>{const ns=Math.min(item.total,item.stock+1);setInventory(p=>p.map(x=>x.id===item.id?{...x,stock:ns}:x));try{const sb=createClient();await sb.from('inventory').update({stock:ns}).eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="flex-1 py-1 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors">＋</button></div>}
+                {perms.manageInventory&&(
+                  <div className="flex gap-1">
+                    <button onClick={async()=>{const ns=Math.max(0,item.stock-1);setInventory(p=>p.map(x=>x.id===item.id?{...x,stock:ns}:x));try{const sb=createClient();await sb.from('inventory').update({stock:ns}).eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="py-1 px-2.5 bg-red-50 text-red-500 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors">−</button>
+                    <input
+                      type="number" min={0} max={item.total}
+                      value={item.stock}
+                      onChange={async(e)=>{const ns=Math.min(item.total,Math.max(0,parseInt(e.target.value)||0));setInventory(p=>p.map(x=>x.id===item.id?{...x,stock:ns}:x));try{const sb=createClient();await sb.from('inventory').update({stock:ns}).eq('id',item.id);}catch(e){console.log('inv err',e);}}}
+                      className="flex-1 text-center border border-gray-200 rounded-lg py-1 text-xs font-bold text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-300 min-w-0"
+                    />
+                    <button onClick={async()=>{const ns=Math.min(item.total,item.stock+1);setInventory(p=>p.map(x=>x.id===item.id?{...x,stock:ns}:x));try{const sb=createClient();await sb.from('inventory').update({stock:ns}).eq('id',item.id);}catch(e){console.log('inv err',e);}}} className="py-1 px-2.5 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors">＋</button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -2692,6 +2731,49 @@ export default function AppShell() {
               <input type="number" placeholder="総数 *" min={1} value={newInv.total} onChange={e=>setNewInv(p=>({...p,total:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
               <select value={newInv.category} onChange={e=>setNewInv(p=>({...p,category:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white">{invCats.map(c=><option key={c}>{c}</option>)}</select>
               <button onClick={addInventory} className="w-full text-white font-bold py-3 rounded-2xl text-sm transition-all active:scale-[0.98]" style={{background:appearance.accentColor}}>追加</button>
+            </div>
+          </div>
+        )}
+        {/* 在庫編集モーダル */}
+        {editInvItem&&(
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setEditInvItem(null)}>
+            <div className={`bg-white w-full rounded-t-3xl p-6 space-y-4 ${slideUp}`} onClick={e=>e.stopPropagation()}>
+              <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto"/>
+              <h3 className="font-black text-gray-900 text-base">機材を編集</h3>
+              <button onClick={()=>invEditImgRef.current?.click()} className="w-full h-24 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center gap-2 hover:border-blue-300 hover:bg-blue-50 transition-colors overflow-hidden">
+                {editInvForm.image?<img src={editInvForm.image} className="w-full h-full object-cover" alt="preview"/>:<div className="text-5xl">{editInvForm.emoji}</div>}
+              </button>
+              <input ref={invEditImgRef} type="file" accept="image/*" onChange={e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>setEditInvForm(p=>({...p,image:r.result as string}));r.readAsDataURL(f);}} className="hidden"/>
+              {!editInvForm.image&&(
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">絵文字</span>
+                  <input value={editInvForm.emoji} onChange={e=>setEditInvForm(p=>({...p,emoji:e.target.value}))} className="w-16 text-center border border-gray-200 rounded-xl py-1.5 text-2xl focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                </div>
+              )}
+              {editInvForm.image&&<button onClick={()=>setEditInvForm(p=>({...p,image:null}))} className="text-xs text-red-500 font-medium">画像を削除</button>}
+              <input placeholder="機材名 *" value={editInvForm.name} onChange={e=>setEditInvForm(p=>({...p,name:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 mb-1">総数</p>
+                  <input type="number" min={1} value={editInvForm.total} onChange={e=>setEditInvForm(p=>({...p,total:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 mb-1">現在の在庫</p>
+                  <input type="number" min={0} value={editInvForm.stock} onChange={e=>setEditInvForm(p=>({...p,stock:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/>
+                </div>
+              </div>
+              <select value={editInvForm.category} onChange={e=>setEditInvForm(p=>({...p,category:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white">
+                {invCats.map(c=><option key={c}>{c}</option>)}
+              </select>
+              <button onClick={async()=>{
+                const total=parseInt(editInvForm.total,10)||1;
+                const stock=Math.min(total,Math.max(0,parseInt(editInvForm.stock,10)||0));
+                const img=editInvForm.image??editInvForm.emoji;
+                const isEmoji=!editInvForm.image;
+                setInventory(p=>p.map(x=>x.id===editInvItem.id?{...x,name:editInvForm.name.trim()||x.name,total,stock,image:img,isEmoji,category:editInvForm.category}:x));
+                try{const sb=createClient();await sb.from('inventory').update({name:editInvForm.name.trim()||editInvItem.name,total,stock,image:img,is_emoji:isEmoji,category:editInvForm.category}).eq('id',editInvItem.id);}catch(e){console.log('inv edit err',e);}
+                setEditInvItem(null);
+              }} className="w-full text-white font-bold py-3 rounded-2xl text-sm transition-all active:scale-[0.98]" style={{background:appearance.accentColor}}>保存</button>
             </div>
           </div>
         )}
