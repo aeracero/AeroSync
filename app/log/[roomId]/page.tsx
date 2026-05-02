@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
 
 // ──────────────────────────────────────────────
 // 型定義
@@ -32,6 +31,7 @@ interface TaskProgressState {
 }
 
 type DiscordStatus = 'available' | 'unavailable' | 'maybe';
+type SessionType = 'checkin' | 'checkout';
 type Lang = 'ja' | 'en';
 
 // ──────────────────────────────────────────────
@@ -40,9 +40,13 @@ type Lang = 'ja' | 'en';
 const T = {
   ja: {
     title: '作業レポート',
-    subtitle: (room: string, date: string) => `📍 ${room} · ${date}`,
+    subtitle: (room: string) => `📍 ${room}`,
     who: 'あなたは？',
     selectPlaceholder: '-- 選択してください --',
+    dateLabel: '日付',
+    sessionLabel: 'セッションタイプ',
+    checkin: '🟢 入室',
+    checkout: '🔴 退室・進捗報告',
     todayTasks: '今日のタスク',
     taskIncomplete: '未完了の理由・修正点...',
     workSummary: '今日の作業内容 *',
@@ -57,24 +61,31 @@ const T = {
     unavail: '参加できない',
     submit: '📤 送信する',
     submitting: '送信中...',
-    successTitle: '送信完了！',
+    successCheckin: '入室を記録しました！',
+    successCheckout: '退室・進捗を送信しました！',
     successMsg: (name: string) => `${name} さん、お疲れ様でした！`,
+    successCheckinMsg: (name: string) => `${name} さん、作業頑張ってください！`,
     back: '← 戻る',
     required: '作業内容を入力してください',
     noRoom: '部屋が見つかりませんでした',
     loading: '読み込み中...',
-    noTasks: '今日あなたに割り当てられたタスクはありません',
+    noTasks: '指定日にタスクはありません',
     openJoin: '誰でも参加可能',
+    checkinNote: '入室を記録します。退室時は「退室・進捗報告」を選んで再度スキャンしてください。',
   },
   en: {
     title: 'Work Report',
-    subtitle: (room: string, date: string) => `📍 ${room} · ${date}`,
+    subtitle: (room: string) => `📍 ${room}`,
     who: 'Who are you?',
     selectPlaceholder: '-- Select --',
-    todayTasks: "Today's Tasks",
+    dateLabel: 'Date',
+    sessionLabel: 'Session Type',
+    checkin: '🟢 Check In',
+    checkout: '🔴 Check Out & Progress',
+    todayTasks: "Tasks",
     taskIncomplete: 'Reason / fix needed...',
-    workSummary: "Today's work summary *",
-    workPlaceholder: 'What did you work on today?',
+    workSummary: "Work summary *",
+    workPlaceholder: 'What did you work on?',
     completed: 'Did you complete your work?',
     yes: '✅ Done',
     no: '⚠️ Not done',
@@ -85,14 +96,17 @@ const T = {
     unavail: 'Unavailable',
     submit: '📤 Submit',
     submitting: 'Submitting...',
-    successTitle: 'Submitted!',
+    successCheckin: 'Check-in recorded!',
+    successCheckout: 'Check-out & progress submitted!',
     successMsg: (name: string) => `Nice work, ${name}!`,
+    successCheckinMsg: (name: string) => `Good luck today, ${name}!`,
     back: '← Back',
     required: 'Please enter your work summary',
     noRoom: 'Room not found',
     loading: 'Loading...',
-    noTasks: 'No tasks assigned to you today',
+    noTasks: 'No tasks on this date',
     openJoin: 'Open to all',
+    checkinNote: 'This records your check-in. When leaving, select "Check Out & Progress" and scan again.',
   },
 };
 
@@ -104,8 +118,6 @@ export default function WorkLogPage({
 }: {
   params: Promise<{ roomId: string }>;
 }) {
-  const supabase = createClient();
-
   const [roomId, setRoomId] = useState<string>('');
   const [lang, setLang] = useState<Lang>('ja');
   const t = T[lang];
@@ -114,6 +126,11 @@ export default function WorkLogPage({
   const [members, setMembers] = useState<Member[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [sessionType, setSessionType] = useState<SessionType>('checkout');
+
+  // 日付（デフォルト: 今日、変更可能）
+  const todayStr = new Date().toLocaleDateString('sv-SE');
+  const [date, setDate] = useState(todayStr);
 
   const [workSummary, setWorkSummary] = useState('');
   const [overallCompleted, setOverallCompleted] = useState(true);
@@ -126,125 +143,85 @@ export default function WorkLogPage({
   const [roomLoading, setRoomLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const today = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD
-
-  // params を解決 (Next.js 15 の async params)
+  // params を解決
   useEffect(() => {
     params.then((p) => setRoomId(p.roomId));
   }, [params]);
 
-  // 部屋情報・メンバー読み込み
+  // 部屋情報・メンバー・タスクをAPIから取得（認証不要）
   useEffect(() => {
     if (!roomId) return;
     setRoomLoading(true);
-    Promise.all([
-      supabase.from('work_rooms').select('*').eq('id', roomId).single(),
-      supabase.from('members').select('id, display_name, email').order('display_name'),
-    ]).then(([roomRes, membersRes]) => {
-      if (roomRes.data) setRoom(roomRes.data);
-      if (membersRes.data) setMembers(membersRes.data);
-      setRoomLoading(false);
-    });
-  }, [roomId]);
+    fetch(`/api/log/${roomId}?date=${date}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.room) setRoom(data.room);
+        if (data.members) setMembers(data.members);
+        if (data.tasks) setTasks(data.tasks);
+        setRoomLoading(false);
+      })
+      .catch(() => setRoomLoading(false));
+  }, [roomId, date]);
 
-  // メンバー選択時にそのメンバーのタスクを読み込む
-  const loadTasks = useCallback(
-    async (member: Member) => {
-      const memberEmail = member.email ?? member.display_name ?? '';
-      const { data } = await supabase
-        .from('tasks')
-        .select('id, title, assignees, open_join, done')
-        .eq('date', today);
-
-      if (!data) return;
-      const myTasks = data.filter(
+  // メンバー選択時にタスク進捗初期化
+  const initTaskProgress = useCallback(
+    (member: Member, taskList: Task[]) => {
+      const email = member.email ?? member.display_name ?? '';
+      const myTasks = taskList.filter(
         (t) =>
           t.open_join ||
           (Array.isArray(t.assignees) &&
-            (t.assignees.includes(memberEmail) ||
-              t.assignees.includes(member.id)))
+            (t.assignees.includes(email) || t.assignees.includes(member.id)))
       );
-      setTasks(myTasks);
-
-      // 既存の task_progress を読み込んで初期値を設定
-      const { data: existing } = await supabase
-        .from('task_progress')
-        .select('task_id, completed, work_notes')
-        .eq('member_email', memberEmail)
-        .in(
-          'task_id',
-          myTasks.map((t) => t.id)
-        );
-
       const init: Record<string, TaskProgressState> = {};
       myTasks.forEach((t) => {
-        const prev = existing?.find((e) => e.task_id === t.id);
-        init[t.id] = {
-          completed: prev?.completed ?? t.done ?? false,
-          notes: prev?.work_notes ?? '',
-        };
+        init[t.id] = { completed: t.done ?? false, notes: '' };
       });
       setTaskProgress(init);
+      return myTasks;
     },
-    [today]
+    []
   );
 
   useEffect(() => {
-    if (selectedMember) loadTasks(selectedMember);
-    else { setTasks([]); setTaskProgress({}); }
-  }, [selectedMember]);
+    if (selectedMember) initTaskProgress(selectedMember, tasks);
+    else setTaskProgress({});
+  }, [selectedMember, tasks]);
 
   // フォーム送信
   const handleSubmit = async () => {
-    if (!selectedMember || !workSummary.trim()) {
+    if (sessionType === 'checkout' && !workSummary.trim()) {
       setError(t.required);
       return;
     }
     setError('');
     setLoading(true);
 
-    const memberEmail = selectedMember.email ?? selectedMember.display_name ?? '';
+    const email = selectedMember?.email ?? selectedMember?.display_name ?? '';
 
-    // 1. 作業ログを保存
-    await supabase.from('work_logs').insert({
-      member_id: selectedMember.id,
-      room_id: roomId,
-      date: today,
-      work_summary: workSummary,
-      completed: overallCompleted,
-      issue_notes: overallCompleted ? null : issueNotes || null,
-      discord_available: discordAvailable,
+    const res = await fetch(`/api/log/${roomId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        memberId: selectedMember!.id,
+        memberEmail: email,
+        date,
+        sessionType,
+        workSummary: sessionType === 'checkout' ? workSummary : undefined,
+        overallCompleted: sessionType === 'checkout' ? overallCompleted : undefined,
+        issueNotes: sessionType === 'checkout' && !overallCompleted ? issueNotes : undefined,
+        discordAvailable: sessionType === 'checkout' ? discordAvailable : undefined,
+        taskProgress: sessionType === 'checkout' ? taskProgress : undefined,
+      }),
     });
 
-    // 2. タスク個人別進捗を保存
-    for (const [taskId, progress] of Object.entries(taskProgress)) {
-      await supabase.from('task_progress').upsert(
-        {
-          task_id: taskId,
-          member_email: memberEmail,
-          completed: progress.completed,
-          work_notes: progress.notes || null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'task_id,member_email' }
-      );
-    }
-
-    // 3. Discord 参加可否を availability テーブルに保存
-    await supabase.from('availability').upsert(
-      {
-        user_id: selectedMember.id,
-        user_email: memberEmail,
-        date: today,
-        status: discordAvailable,
-        note: 'QRコード経由',
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,date' }
-    );
-
     setLoading(false);
-    setSubmitted(true);
+    if (res.ok) {
+      setSubmitted(true);
+    } else {
+      const data = await res.json();
+      setError(data.error ?? '送信エラーが発生しました');
+    }
   };
 
   // ──────── ローディング ────────
@@ -270,14 +247,18 @@ export default function WorkLogPage({
 
   // ──────── 送信完了 ────────
   if (submitted) {
+    const name = selectedMember?.display_name ?? selectedMember?.email ?? '';
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-green-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl shadow-xl p-10 text-center max-w-sm w-full">
-          <div className="text-7xl mb-4">🎉</div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">{t.successTitle}</h2>
+          <div className="text-7xl mb-4">{sessionType === 'checkin' ? '🟢' : '🎉'}</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">
+            {sessionType === 'checkin' ? t.successCheckin : t.successCheckout}
+          </h2>
           <p className="text-gray-500 text-lg">
-            {t.successMsg(selectedMember?.display_name ?? selectedMember?.email ?? '')}
+            {sessionType === 'checkin' ? t.successCheckinMsg(name) : t.successMsg(name)}
           </p>
+          <p className="text-xs text-gray-400 mt-3">{date}</p>
           <button
             onClick={() => {
               setSubmitted(false);
@@ -286,6 +267,7 @@ export default function WorkLogPage({
               setOverallCompleted(true);
               setIssueNotes('');
               setDiscordAvailable('available');
+              setSessionType('checkout');
             }}
             className="mt-6 text-blue-500 underline text-sm"
           >
@@ -296,6 +278,17 @@ export default function WorkLogPage({
     );
   }
 
+  // メンバーに対応するタスクを絞り込む
+  const myTasks = selectedMember
+    ? tasks.filter(
+        (t) =>
+          t.open_join ||
+          (Array.isArray(t.assignees) &&
+            (t.assignees.includes(selectedMember.email ?? '') ||
+              t.assignees.includes(selectedMember.id)))
+      )
+    : [];
+
   // ──────── メインフォーム ────────
   return (
     <div className="min-h-screen bg-gray-50 pb-8">
@@ -304,9 +297,8 @@ export default function WorkLogPage({
         <div className="max-w-md mx-auto flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-bold">📋 {t.title}</h1>
-            <p className="text-blue-200 mt-1 text-sm">{t.subtitle(room.name, today)}</p>
+            <p className="text-blue-200 mt-1 text-sm">{t.subtitle(room.name)}</p>
           </div>
-          {/* 言語切替 */}
           <button
             onClick={() => setLang((l) => (l === 'ja' ? 'en' : 'ja'))}
             className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-1.5 text-sm font-medium transition"
@@ -317,6 +309,42 @@ export default function WorkLogPage({
       </div>
 
       <div className="max-w-md mx-auto px-4 mt-5 space-y-4">
+
+        {/* 日付選択 */}
+        <Card>
+          <Label>{t.dateLabel}</Label>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl p-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </Card>
+
+        {/* セッションタイプ */}
+        <Card>
+          <Label>{t.sessionLabel}</Label>
+          <div className="flex gap-3">
+            <ToggleBtn
+              active={sessionType === 'checkin'}
+              onClick={() => setSessionType('checkin')}
+              activeClass="bg-green-500 text-white"
+            >
+              {t.checkin}
+            </ToggleBtn>
+            <ToggleBtn
+              active={sessionType === 'checkout'}
+              onClick={() => setSessionType('checkout')}
+              activeClass="bg-red-500 text-white"
+            >
+              {t.checkout}
+            </ToggleBtn>
+          </div>
+          {sessionType === 'checkin' && (
+            <p className="text-xs text-gray-500 mt-2">{t.checkinNote}</p>
+          )}
+        </Card>
+
         {/* メンバー選択 */}
         <Card>
           <Label>{t.who}</Label>
@@ -337,16 +365,15 @@ export default function WorkLogPage({
           </select>
         </Card>
 
-        {selectedMember && (
+        {/* 退室時の詳細フォーム */}
+        {selectedMember && sessionType === 'checkout' && (
           <>
-            {/* 今日のタスク */}
-            <Card>
-              <Label>{t.todayTasks}</Label>
-              {tasks.length === 0 ? (
-                <p className="text-gray-400 text-sm py-2">{t.noTasks}</p>
-              ) : (
+            {/* タスク進捗 */}
+            {myTasks.length > 0 && (
+              <Card>
+                <Label>{t.todayTasks}</Label>
                 <div className="space-y-3">
-                  {tasks.map((task) => {
+                  {myTasks.map((task) => {
                     const prog = taskProgress[task.id] ?? { completed: false, notes: '' };
                     return (
                       <div key={task.id} className="border border-gray-100 rounded-xl p-3">
@@ -389,8 +416,8 @@ export default function WorkLogPage({
                     );
                   })}
                 </div>
-              )}
-            </Card>
+              </Card>
+            )}
 
             {/* 作業内容 */}
             <Card>
@@ -459,16 +486,18 @@ export default function WorkLogPage({
                 ))}
               </div>
             </Card>
-
-            {/* 送信ボタン */}
-            <button
-              onClick={handleSubmit}
-              disabled={loading || !workSummary.trim()}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white py-4 rounded-2xl font-bold text-lg shadow-lg transition active:scale-95"
-            >
-              {loading ? t.submitting : t.submit}
-            </button>
           </>
+        )}
+
+        {/* 送信ボタン */}
+        {selectedMember && (
+          <button
+            onClick={handleSubmit}
+            disabled={loading || (sessionType === 'checkout' && !workSummary.trim())}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white py-4 rounded-2xl font-bold text-lg shadow-lg transition active:scale-95"
+          >
+            {loading ? t.submitting : t.submit}
+          </button>
         )}
       </div>
     </div>
