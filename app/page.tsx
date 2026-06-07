@@ -11,7 +11,7 @@ import {
   MapPin, CheckSquare, TrendingUp, Zap, Shield, Crown,
   Palette, Wand2, ChevronDown, RotateCcw, Moon, Sun, Globe,
   Volume2, VolumeX, Vibrate, Eye as EyeIcon, EyeOff as EyeOffIcon,
-  Copy, Download, Upload, RefreshCw, HelpCircle, Star, Flame, Home, AtSign, BellRing
+  Copy, Download, Upload, RefreshCw, HelpCircle, Star, Flame, Home, AtSign, BellRing, HardDrive, FileText, Film, FolderOpen
 } from "lucide-react";
 
 // ─── Constants & Settings ──────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ const TARGET_OWNER_DISCORD_ID = "916106297190019102";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Tab = "home"|"schedule"|"inventory"|"wiki"|"members"|"settings"|"discord";
+type Tab = "home"|"schedule"|"inventory"|"wiki"|"storage"|"members"|"settings"|"discord";
 type DiscordChannel = { id:string; name:string; type:number; parent_id:string|null; position:number; topic?:string; };
 type DiscordMessage = { id:string; content:string; author:{id:string;username:string;avatar:string|null;discriminator:string}; timestamp:string; embeds?:any[]; };
 type AuthMode = "login"|"signup"|"check_email";
@@ -1272,9 +1272,9 @@ export default function AppShell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, settingsTab]);
 
-  // WikiタブにてSharedFilesを取得
+  // ストレージタブにてSharedFilesを取得
   useEffect(() => {
-    if (activeTab === "wiki") loadSharedFiles();
+    if (activeTab === "storage") loadSharedFiles();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -2728,39 +2728,102 @@ export default function AppShell() {
             }
           </div>
           {showWikiForm&&<div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setShowWikiForm(false)}><div className={`bg-white w-full rounded-t-3xl p-6 space-y-4 ${slideUp}`} onClick={e=>e.stopPropagation()}><div className="w-10 h-1 bg-gray-200 rounded-full mx-auto"/><h3 className="font-black text-gray-900 text-base">新規Wikiページ</h3><input placeholder="タイトル" value={newWiki.title} onChange={e=>setNewWiki(p=>({...p,title:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"/><select value={newWiki.cat} onChange={e=>setNewWiki(p=>({...p,cat:e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white">{WIKI_CATS.map(c=><option key={c}>{c}</option>)}</select><button onClick={addWiki} className="w-full text-white font-bold py-3 rounded-2xl text-sm" style={{background:appearance.accentColor}}>作成して編集</button></div></div>}
+        </div>
+      );
+    }
 
-          {/* ⑧ 共有ファイルセクション */}
+    if(activeTab==="storage"){
+      const FILE_CATS = ["すべて","ドキュメント","画像","動画","その他"];
+      const FILE_ICONS: Record<string,React.ReactNode> = {
+        "画像": <ImageIcon size={18} className="text-pink-500"/>,
+        "動画": <Film size={18} className="text-purple-500"/>,
+        "ドキュメント": <FileText size={18} className="text-blue-500"/>,
+        "その他": <FolderOpen size={18} className="text-gray-400"/>,
+      };
+      const filtered = fileFilter==="すべて" ? sharedFiles : sharedFiles.filter(f=>f.category===fileFilter);
+      const totalSize = sharedFiles.reduce((s,f)=>s+f.size, 0);
+      const byCategory = FILE_CATS.slice(1).map(cat=>({
+        cat,
+        count: sharedFiles.filter(f=>f.category===cat).length,
+        size: sharedFiles.filter(f=>f.category===cat).reduce((s,f)=>s+f.size,0),
+      }));
+      const fmtSize = (bytes:number) => bytes < 1024*1024 ? `${Math.round(bytes/1024)}KB` : `${(bytes/1024/1024).toFixed(1)}MB`;
+      return (
+        <div className={`p-4 space-y-4 ${fadeIn}`}>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-black text-gray-900 flex items-center gap-2"><HardDrive size={20} style={{color:appearance.accentColor}}/> ストレージ</h2>
+            <button onClick={()=>fileUploadRef.current?.click()} disabled={fileUploading} className="flex items-center gap-1.5 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50" style={{background:appearance.accentColor}}>
+              {fileUploading?<Loader2 size={14} className="animate-spin"/>:<Upload size={14}/>} アップロード
+            </button>
+            <input ref={fileUploadRef} type="file" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)uploadSharedFile(f);e.target.value="";}}/>
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5" style={{borderTopWidth:2,borderTopColor:appearance.accentColor}}>
+              <p className="text-2xl font-black text-gray-900">{sharedFiles.length}</p>
+              <p className="text-xs text-gray-500 font-bold mt-0.5">ファイル数</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3.5" style={{borderTopWidth:2,borderTopColor:"#10b981"}}>
+              <p className="text-2xl font-black text-gray-900">{fmtSize(totalSize)}</p>
+              <p className="text-xs text-gray-500 font-bold mt-0.5">合計サイズ</p>
+            </div>
+          </div>
+
+          {/* Category breakdown */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-2.5">
+            <h3 className="text-sm font-black text-gray-700">カテゴリー別</h3>
+            {byCategory.map(({cat,count,size})=>(
+              <div key={cat} className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{background:appearance.accentColor+"15"}}>
+                  {FILE_ICONS[cat]}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-gray-700">{cat}</span>
+                    <span className="text-xs text-gray-400">{count}件 · {fmtSize(size)}</span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{width:totalSize>0?`${(size/totalSize)*100}%`:"0%",background:appearance.accentColor}}/>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Filter tabs */}
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            {FILE_CATS.map(cat=>(
+              <button key={cat} onClick={()=>setFileFilter(cat)} className={`shrink-0 text-xs font-bold px-3 py-1.5 rounded-full border transition-all ${fileFilter===cat?"text-white border-transparent":"bg-white text-gray-500 border-gray-200"}`} style={fileFilter===cat?{background:appearance.accentColor}:{}}>{cat}</button>
+            ))}
+          </div>
+
+          {/* File list */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <h3 className="text-sm font-black text-gray-900 flex items-center gap-1.5">📎 共有ファイル</h3>
-              <button onClick={()=>fileUploadRef.current?.click()} disabled={fileUploading} className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl text-white transition-all active:scale-95 disabled:opacity-50" style={{background:appearance.accentColor}}>
-                {fileUploading?<Loader2 size={12} className="animate-spin"/>:<Upload size={12}/>} アップロード
-              </button>
-              <input ref={fileUploadRef} type="file" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)uploadSharedFile(f);e.target.value="";}}/>
-            </div>
-            <div className="flex gap-1.5 overflow-x-auto px-4 py-2 border-b border-gray-50">
-              {["すべて","ドキュメント","画像","動画","その他"].map(cat=>(
-                <button key={cat} onClick={()=>setFileFilter(cat)} className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full border transition-all ${fileFilter===cat?"text-white border-transparent":"bg-white text-gray-500 border-gray-200"}`} style={fileFilter===cat?{background:appearance.accentColor}:{}}>{cat}</button>
-              ))}
-            </div>
             {sharedFilesLoading?(
-              <div className="flex justify-center py-6"><Loader2 size={16} className="animate-spin text-gray-300"/></div>
+              <div className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-gray-300"/></div>
+            ):filtered.length===0?(
+              <div className="text-center py-10 space-y-2">
+                <HardDrive size={28} className="mx-auto text-gray-200"/>
+                <p className="text-sm font-bold text-gray-400">ファイルがありません</p>
+                <p className="text-xs text-gray-300">アップロードボタンからファイルを追加できます</p>
+              </div>
             ):(
               <div className="divide-y divide-gray-50">
-                {(fileFilter==="すべて"?sharedFiles:sharedFiles.filter(f=>f.category===fileFilter)).length===0?(
-                  <p className="text-xs text-gray-400 text-center py-6">ファイルがありません</p>
-                ):(fileFilter==="すべて"?sharedFiles:sharedFiles.filter(f=>f.category===fileFilter)).map(file=>(
-                  <div key={file.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base" style={{background:appearance.accentColor+"15"}}>
-                      {file.category==="画像"?"🖼️":file.category==="動画"?"🎬":file.category==="ドキュメント"?"📄":"📎"}
+                {filtered.map(file=>(
+                  <div key={file.id} className="flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50/70 transition-colors">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{background:appearance.accentColor+"15"}}>
+                      {FILE_ICONS[file.category] ?? <FolderOpen size={18} className="text-gray-400"/>}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-gray-900 truncate">{file.name}</p>
-                      <p className="text-[10px] text-gray-400">{file.uploaded_by_name} · {Math.round(file.size/1024)}KB</p>
+                      <p className="text-sm font-bold text-gray-900 truncate">{file.name}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">{file.uploaded_by_name} · {fmtSize(file.size)}{file.created_at && ` · ${new Date(file.created_at).toLocaleDateString("ja-JP")}`}</p>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <a href={file.url} target="_blank" rel="noreferrer" className="w-7 h-7 rounded-lg flex items-center justify-center bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"><Download size={12}/></a>
-                      {file.uploaded_by===currentUserId&&<button onClick={()=>deleteSharedFile(file)} className="w-7 h-7 rounded-lg flex items-center justify-center bg-red-50 text-red-500 hover:bg-red-100 transition-colors"><Trash2 size={12}/></button>}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <a href={file.url} target="_blank" rel="noreferrer" className="w-8 h-8 rounded-xl flex items-center justify-center bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors" title="ダウンロード"><Download size={14}/></a>
+                      {file.uploaded_by===currentUserId&&(
+                        <button onClick={()=>deleteSharedFile(file)} className="w-8 h-8 rounded-xl flex items-center justify-center bg-red-50 text-red-500 hover:bg-red-100 transition-colors" title="削除"><Trash2 size={14}/></button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -3843,12 +3906,13 @@ export default function AppShell() {
       <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-gray-100 z-30" style={{paddingBottom:"env(safe-area-inset-bottom)"}}>
         <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
           {([
-            {id:"home" as Tab, label:"ホーム", icon:(active:boolean)=><Home size={20} strokeWidth={active?2.5:1.8}/>},
-            {id:"schedule" as Tab, label:"予定", icon:(active:boolean)=><Calendar size={20} strokeWidth={active?2.5:1.8}/>},
-            {id:"inventory" as Tab, label:"在庫", icon:(active:boolean)=><Package size={20} strokeWidth={active?2.5:1.8}/>},
-            {id:"members" as Tab, label:"メンバー", icon:(active:boolean)=><Users size={20} strokeWidth={active?2.5:1.8}/>},
-            {id:"discord" as Tab, label:"Discord", icon:(_active:boolean)=><DiscordIcon size={20}/>},
-            {id:"settings" as Tab, label:"設定", icon:(active:boolean)=><Settings size={20} strokeWidth={active?2.5:1.8}/>},
+            {id:"home" as Tab, label:"ホーム", icon:(active:boolean)=><Home size={19} strokeWidth={active?2.5:1.8}/>},
+            {id:"schedule" as Tab, label:"予定", icon:(active:boolean)=><Calendar size={19} strokeWidth={active?2.5:1.8}/>},
+            {id:"inventory" as Tab, label:"在庫", icon:(active:boolean)=><Package size={19} strokeWidth={active?2.5:1.8}/>},
+            {id:"storage" as Tab, label:"ファイル", icon:(active:boolean)=><HardDrive size={19} strokeWidth={active?2.5:1.8}/>},
+            {id:"members" as Tab, label:"メンバー", icon:(active:boolean)=><Users size={19} strokeWidth={active?2.5:1.8}/>},
+            {id:"discord" as Tab, label:"Discord", icon:(_active:boolean)=><DiscordIcon size={19}/>},
+            {id:"settings" as Tab, label:"設定", icon:(active:boolean)=><Settings size={19} strokeWidth={active?2.5:1.8}/>},
           ]).map(({id,label,icon})=>(
             <button key={id} onClick={()=>{setActiveTab(id);setActiveWiki(null);}} className="flex flex-col items-center justify-center w-full h-full gap-0.5 transition-all duration-200" style={{color:activeTab===id?appearance.accentColor:"#9ca3af"}}>
               <div className="p-1.5 rounded-xl transition-all duration-200" style={activeTab===id?{background:appearance.accentColor+"22"}:{}}>
